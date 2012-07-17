@@ -14,6 +14,14 @@ class TestWorksheet < Test::Unit::TestCase
     assert_equal(ws.pn, "worksheets/sheet2.xml")
   end
 
+  def test_name_is_html_encoded
+    @ws.name = '<foo> & <bar>'
+    assert_equal(@ws.name, '&lt;foo&gt; &amp; &lt;bar&gt;')
+  end
+
+  def test_name_exception_on_colon
+    assert_raises(ArgumentError) { @ws.name = 'foo:bar' }
+  end
   def test_page_margins
     assert(@ws.page_margins.is_a? Axlsx::PageMargins)
   end
@@ -25,6 +33,28 @@ class TestWorksheet < Test::Unit::TestCase
     end
   end
 
+  def test_page_setup
+    assert(@ws.page_setup.is_a? Axlsx::PageSetup)
+  end
+
+  def test_page_setup_yield
+    @ws.page_setup do |ps|
+      assert(ps.is_a? Axlsx::PageSetup)
+      assert(@ws.page_setup == ps)
+    end
+  end
+
+  def test_print_options
+    assert(@ws.print_options.is_a? Axlsx::PrintOptions)
+  end
+
+  def test_print_options_yield
+    @ws.print_options do |po|
+      assert(po.is_a? Axlsx::PrintOptions)
+      assert(@ws.print_options == po)
+    end
+  end
+
   def test_no_autowidth
     @ws.workbook.use_autowidth = false
     @ws.add_row [1,2,3,4]
@@ -33,16 +63,22 @@ class TestWorksheet < Test::Unit::TestCase
 
   def test_initialization_options
     page_margins = {:left => 2, :right => 2, :bottom => 2, :top => 2, :header => 2, :footer => 2}
-    optioned = @ws.workbook.add_worksheet(:name => 'bob', :page_margins => page_margins, :selected => true, :show_gridlines => false)
-    assert_equal(optioned.page_margins.left, page_margins[:left])
-    assert_equal(optioned.page_margins.right, page_margins[:right])
-    assert_equal(optioned.page_margins.top, page_margins[:top])
-    assert_equal(optioned.page_margins.bottom, page_margins[:bottom])
-    assert_equal(optioned.page_margins.header, page_margins[:header])
-    assert_equal(optioned.page_margins.footer, page_margins[:footer])
+    page_setup = {:fit_to_height => 1, :fit_to_width => 1, :orientation => :landscape, :paper_width => "210mm", :paper_height => "297mm", :scale => 80}
+    print_options = {:grid_lines => true, :headings => true, :horizontal_centered => true, :vertical_centered => true}
+    optioned = @ws.workbook.add_worksheet(:name => 'bob', :page_margins => page_margins, :page_setup => page_setup, :print_options => print_options, :selected => true, :show_gridlines => false)
+    page_margins.keys.each do |key|
+      assert_equal(page_margins[key], optioned.page_margins.send(key))
+    end
+    page_setup.keys.each do |key|
+      assert_equal(page_setup[key], optioned.page_setup.send(key))
+    end
+    print_options.keys.each do |key|
+      assert_equal(print_options[key], optioned.print_options.send(key))
+    end
     assert_equal(optioned.name, 'bob')
     assert_equal(optioned.selected, true)
     assert_equal(optioned.show_gridlines, false)
+
   end
 
 
@@ -77,7 +113,12 @@ class TestWorksheet < Test::Unit::TestCase
   def test_dimension
     @ws.add_row [1, 2, 3]
     @ws.add_row [4, 5, 6]
-    assert_equal @ws.dimension, "A1:C2"
+    assert_equal @ws.dimension.sqref, "A1:C2"
+  end
+
+  def test_dimension_with_empty_row
+    @ws.add_row
+    assert_equal "A1:AA200", @ws.dimension.sqref
   end
 
   def test_referencing
@@ -107,7 +148,9 @@ class TestWorksheet < Test::Unit::TestCase
   end
 
   def test_drawing
-    assert @ws.drawing.is_a? Axlsx::Drawing
+    assert @ws.drawing == nil
+    @ws.add_chart(Axlsx::Pie3DChart)
+    assert @ws.drawing.is_a?(Axlsx::Drawing)
   end
 
   def test_col_style
@@ -152,10 +195,16 @@ class TestWorksheet < Test::Unit::TestCase
     end
     assert_equal(@ws.rows[1].cells[0].style, 0)
     assert_equal(@ws.rows[2].cells[1].style, 0)
+    @ws.row_style( 1..2, 1, :col_offset => 2)
+    @ws.rows[(1..2)].each do |r|
+      r.cells[(2..-1)].each do |c|
+        assert_equal(c.style, 1)
+      end
+    end
   end
 
   def test_to_xml_string_fit_to_page
-    @ws.fit_to_page = true
+    @ws.page_setup.fit_to_width = 1
     doc = Nokogiri::XML(@ws.to_xml_string)
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:sheetPr/xmlns:pageSetUpPr[@fitToPage="true"]').size, 1)
   end
@@ -164,6 +213,11 @@ class TestWorksheet < Test::Unit::TestCase
     @ws.add_row [1,2,3]
     doc = Nokogiri::XML(@ws.to_xml_string)
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:dimension[@ref="A1:C1"]').size, 1)
+  end
+
+  def test_fit_to_page_assignation_does_nothing
+    @ws.fit_to_page = true
+    assert_equal(@ws.fit_to_page?, false)
   end
 
   def test_to_xml_string_selected
@@ -176,13 +230,6 @@ class TestWorksheet < Test::Unit::TestCase
     @ws.show_gridlines = false
     doc = Nokogiri::XML(@ws.to_xml_string)
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:sheetViews/xmlns:sheetView[@showGridLines="false"]').size, 1)
-  end
-
-
-  def test_to_xml_string_show_selection
-    doc = Nokogiri::XML(@ws.to_xml_string)
-    assert_equal(doc.xpath('//xmlns:worksheet/xmlns:sheetViews/xmlns:sheetView/xmlns:selection[@activeCell="A1"]').size, 1)
-    assert_equal(doc.xpath('//xmlns:worksheet/xmlns:sheetViews/xmlns:sheetView/xmlns:selection[@sqref="A1"]').size, 1)
   end
 
   def test_to_xml_string_auto_fit_data
@@ -213,6 +260,12 @@ class TestWorksheet < Test::Unit::TestCase
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:mergeCells/xmlns:mergeCell[@ref="E1:F1"]').size, 1)
   end
 
+  def test_to_xml_string_sheet_protection
+    @ws.sheet_protection.password = 'fish'
+    doc = Nokogiri::XML(@ws.to_xml_string)
+    assert(doc.xpath('//xmlns:sheetProtection'))
+  end
+
   def test_to_xml_string_page_margins
     @ws.page_margins do |pm|
       pm.left = 9
@@ -222,8 +275,26 @@ class TestWorksheet < Test::Unit::TestCase
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:pageMargins[@left="9"][@right="7"]').size, 1)
   end
 
+  def test_to_xml_string_page_setup
+    @ws.page_setup do |ps|
+      ps.paper_width = "210mm"
+      ps.scale = 80
+    end
+    doc = Nokogiri::XML(@ws.to_xml_string)
+    assert_equal(doc.xpath('//xmlns:worksheet/xmlns:pageSetup[@paperWidth="210mm"][@scale="80"]').size, 1)
+  end
+
+  def test_to_xml_string_print_options
+    @ws.print_options do |po|
+      po.grid_lines = true
+      po.horizontal_centered = true
+    end
+    doc = Nokogiri::XML(@ws.to_xml_string)
+    assert_equal(doc.xpath('//xmlns:worksheet/xmlns:printOptions[@gridLines="true"][@horizontalCentered="true"]').size, 1)
+  end
+
   def test_to_xml_string_drawing
-    c = @ws.add_chart Axlsx::Pie3DChart
+    @ws.add_chart Axlsx::Pie3DChart
     doc = Nokogiri::XML(@ws.to_xml_string)
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:drawing[@r:id="rId1"]').size, 1)
   end
@@ -237,64 +308,67 @@ class TestWorksheet < Test::Unit::TestCase
     assert_equal(doc.xpath('//xmlns:worksheet/xmlns:tableParts/xmlns:tablePart[@r:id="rId1"]').size, 1)
   end
 
-  def test_abs_auto_filter
+  def test_auto_filter
     @ws.add_row [1, "two", 3]
     @ws.auto_filter = "A1:C1"
-    assert_equal(@ws.abs_auto_filter, "'Sheet1'!$A$1:$C$1")
+    assert_equal("A1:C1", @ws.auto_filter.range)
+    assert_equal(@ws.auto_filter.defined_name, "'Sheet1'!$A$1:$C$1")
   end
 
   def test_to_xml_string
     schema = Nokogiri::XML::Schema(File.open(Axlsx::SML_XSD))
     doc = Nokogiri::XML(@ws.to_xml_string)
-    errors = []
-    schema.validate(doc).each do |error|
-      errors.push error
-      puts error.message
-    end
-    assert(errors.empty?, "error free validation")
+    assert(schema.validate(doc).map{ |e| puts e.message; e }.empty?, "error free validation")
   end
 
+  def test_to_xml_string_with_illegal_chars
+    nasties =  "\v\u2028\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u001f"
+    @ws.add_row [nasties]
+    assert_equal(0, @ws.rows.last.cells.last.value.index("\v"))
+    assert_equal(nil,@ws.to_xml_string.index("\v"))
+  end
   # Make sure the XML for all optional elements (like pageMargins, autoFilter, ...)
   # is generated in correct order.
   def test_valid_with_optional_elements
     @ws.page_margins.set :left => 9
+    @ws.page_setup.set :fit_to_width => 1
+    @ws.print_options.set :headings => true
     @ws.auto_filter = "A1:C3"
     @ws.merge_cells "A4:A5"
     @ws.add_chart Axlsx::Pie3DChart
     @ws.add_table "E1:F3"
     schema = Nokogiri::XML::Schema(File.open(Axlsx::SML_XSD))
     doc = Nokogiri::XML(@ws.to_xml_string)
-    errors = []
-    schema.validate(doc).each do |error|
-      errors.push error
-      puts error.message
-    end
-    assert(errors.empty?, "error free validation")
-
+    assert(schema.validate(doc).map { |e| puts e.message; e }.empty?, schema.validate(doc).map { |e| e.message }.join('\n'))
   end
 
   def test_relationships
+    @ws.add_row [1,2,3]
     assert(@ws.relationships.empty?, "No Drawing relationship until you add a chart")
     c = @ws.add_chart Axlsx::Pie3DChart
     assert_equal(@ws.relationships.size, 1, "adding a chart creates the relationship")
     c = @ws.add_chart Axlsx::Pie3DChart
     assert_equal(@ws.relationships.size, 1, "multiple charts still only result in one relationship")
+    c = @ws.add_comment :text => 'builder', :author => 'bob', :ref => @ws.rows.last.cells.last
+    assert_equal(@ws.relationships.size, 4, "adding a comment adds 3 relationships")
+    c = @ws.add_comment :text => 'not that is a comment!', :author => 'travis', :ref => "A1"
+    assert_equal(@ws.relationships.size, 4, "adding multiple comments in the same worksheet should not add any additional comment relationships")
   end
 
 
   def test_name_unique
-    assert_raise(ArgumentError, "worksheet name must be unique") { n = @ws.name; @ws.workbook.add_worksheet(:name=> @ws) }
+    assert_raise(ArgumentError, "worksheet name must be unique") { n = @ws.name; @ws.workbook.add_worksheet(:name=> n) }
   end
 
   def test_name_size
-    assert_raise(ArgumentError, "name too long!") { @ws.name = Array.new(32, "A").join('') }
-    assert_nothing_raised { @ws.name = Array.new(31, "A").join('') }
+    assert_raise(ArgumentError, "name too long!") { @ws.name = Array.new(32, "A").join() }
+    assert_nothing_raised { @ws.name = Array.new(31, "A").join() }
   end
 
   def test_set_fixed_width_column
     @ws.add_row ["mule", "donkey", "horse"], :widths => [20, :ignore, nil]
     assert(@ws.column_info.size == 3, "a data item for each column")
-    assert_equal(@ws.column_info[0].width, 20, "adding a row with fixed width updates :fixed attribute")
+    assert_equal(20, @ws.column_info[0].width, "adding a row with fixed width updates :fixed attribute")
     assert_equal(@ws.column_info[1].width, nil, ":ignore does not set any data")
   end
 
@@ -311,23 +385,42 @@ class TestWorksheet < Test::Unit::TestCase
     assert_raise(ArgumentError, 'only accept Integer, Float or Fixnum') { @ws.column_widths 2, 7, "-1" }
   end
 
+  def test_protect_range
+    assert(@ws.send(:protected_ranges).is_a?(Axlsx::SimpleTypedList))
+    assert_equal(0, @ws.send(:protected_ranges).size)
+    @ws.protect_range('A1:A3')
+    assert_equal('A1:A3', @ws.send(:protected_ranges).last.sqref)
+  end
+
+  def test_protect_range_with_cells
+    @ws.add_row [1, 2, 3]
+    assert_nothing_raised {@ws.protect_range(@ws.rows.first.cells) }
+    assert_equal('A1:C1', @ws.send(:protected_ranges).last.sqref)
+    
+  end
   def test_merge_cells
-    assert(@ws.merged_cells.is_a?(Array))
-    assert_equal(@ws.merged_cells.size, 0)
     @ws.add_row [1,2,3]
     @ws.add_row [4,5,6]
     @ws.add_row [7,8,9]
     @ws.merge_cells "A1:A2"
     @ws.merge_cells "B2:C3"
     @ws.merge_cells @ws.rows.last.cells[(0..1)]
-    assert_equal(@ws.merged_cells.size, 3)
-    assert_equal(@ws.merged_cells.last, "A3:B3")
+    assert_equal(@ws.send(:merged_cells).size, 3)
+    assert_equal(@ws.send(:merged_cells).last, "A3:B3")
   end
-
+  
+  def test_merge_cells_sorts_correctly_by_row_when_given_array
+    10.times do |i|
+      @ws.add_row [i]
+    end
+    @ws.merge_cells [@ws.rows[8].cells.first, @ws.rows[9].cells.first]
+    assert_equal "A9:A10", @ws.send(:merged_cells).first
+  end
+  
   def test_auto_filter
-    assert(@ws.auto_filter.nil?)
+    assert(@ws.auto_filter.range.nil?)
     assert_raise(ArgumentError) { @ws.auto_filter = 123 }
     @ws.auto_filter = "A1:D9"
-    assert_equal(@ws.auto_filter, "A1:D9")
+    assert_equal(@ws.auto_filter.range, "A1:D9")
   end
 end

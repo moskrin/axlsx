@@ -8,15 +8,15 @@ class TestValidators < Test::Unit::TestCase
   def test_validators
     #unsigned_int
     assert_nothing_raised { Axlsx.validate_unsigned_int 1 }
-    assert_nothing_raised { Axlsx.validate_unsigned_int +1 }
-    assert_raise(ArgumentError) { Axlsx.validate_unsigned_int -1 }
-    assert_raise(ArgumentError) { Axlsx.validate_unsigned_int '1' }
+    assert_nothing_raised { Axlsx.validate_unsigned_int(+1) }
+    assert_raise(ArgumentError) { Axlsx.validate_unsigned_int(-1)}
+    assert_raise(ArgumentError) { Axlsx.validate_unsigned_int('1') }
 
     #int
-    assert_nothing_raised { Axlsx.validate_int 1 }
-    assert_nothing_raised { Axlsx.validate_int -1 }
-    assert_raise(ArgumentError) { Axlsx.validate_int 'a' }
-    assert_raise(ArgumentError) { Axlsx.validate_int Array }
+    assert_nothing_raised { Axlsx.validate_int(1) }
+    assert_nothing_raised { Axlsx.validate_int(-1) }
+    assert_raise(ArgumentError) { Axlsx.validate_int('a')}
+    assert_raise(ArgumentError) { Axlsx.validate_int(Array) }
 
     #boolean (as 0 or 1, :true, :false, true, false, or "true," "false")
     [0,1,:true, :false, true, false, "true", "false"].each do |v|
@@ -70,6 +70,92 @@ class TestValidators < Test::Unit::TestCase
     assert_raise(ArgumentError) { Axlsx.validate_relationship_type "http://some.url" }
     assert_raise(ArgumentError) { Axlsx.validate_relationship_type false }
 
+    #number_with_unit
+    assert_nothing_raised { Axlsx.validate_number_with_unit "210mm" }
+    assert_nothing_raised { Axlsx.validate_number_with_unit "8.5in" }
+    assert_nothing_raised { Axlsx.validate_number_with_unit "29.7cm" }
+    assert_nothing_raised { Axlsx.validate_number_with_unit "120pt" }
+    assert_nothing_raised { Axlsx.validate_number_with_unit "0pc" }
+    assert_nothing_raised { Axlsx.validate_number_with_unit "12.34pi" }
+    assert_raise(ArgumentError) { Axlsx.validate_number_with_unit nil }
+    assert_raise(ArgumentError) { Axlsx.validate_number_with_unit "210" }
+    assert_raise(ArgumentError) { Axlsx.validate_number_with_unit 210 }
+    assert_raise(ArgumentError) { Axlsx.validate_number_with_unit "mm" }
+    assert_raise(ArgumentError) { Axlsx.validate_number_with_unit "-29cm" }
+
+    #scale_10_400
+    assert_nothing_raised { Axlsx.validate_scale_10_400 10 }
+    assert_nothing_raised { Axlsx.validate_scale_10_400 100 }
+    assert_nothing_raised { Axlsx.validate_scale_10_400 400 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_10_400 9 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_10_400 10.0 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_10_400 400.1 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_10_400 "99" }
+    
+    #scale_0_10_400
+    assert_nothing_raised { Axlsx.validate_scale_0_10_400 0 }
+    assert_nothing_raised { Axlsx.validate_scale_0_10_400 10 }
+    assert_nothing_raised { Axlsx.validate_scale_0_10_400 100 }
+    assert_nothing_raised { Axlsx.validate_scale_0_10_400 400 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_0_10_400 9 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_0_10_400 10.0 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_0_10_400 400.1 }
+    assert_raise(ArgumentError) { Axlsx.validate_scale_0_10_400 "99" }
+    
+    #page_orientation
+    assert_nothing_raised { Axlsx.validate_page_orientation :default }
+    assert_nothing_raised { Axlsx.validate_page_orientation :landscape }
+    assert_nothing_raised { Axlsx.validate_page_orientation :portrait }
+    assert_raise(ArgumentError) { Axlsx.validate_page_orientation nil }
+    assert_raise(ArgumentError) { Axlsx.validate_page_orientation 1 }
+    assert_raise(ArgumentError) { Axlsx.validate_page_orientation "landscape" }
+    
+    #data_validation_error_style
+    [:information, :stop, :warning].each do |sym|
+      assert_nothing_raised { Axlsx.validate_data_validation_error_style sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 'warning' }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 0 }
+    
+    #data_validation_operator
+    [:lessThan, :lessThanOrEqual, :equal, :notEqual, :greaterThanOrEqual, :greaterThan, :between, :notBetween].each do |sym|
+      assert_nothing_raised { Axlsx.validate_data_validation_operator sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 'lessThan' }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 0 }
+    
+    #data_validation_type
+    [:custom, :data, :decimal, :list, :none, :textLength, :time, :whole].each do |sym|
+      assert_nothing_raised { Axlsx.validate_data_validation_type sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 'decimal' }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 0 }
+    
+    #sheet_view_type
+    [:normal, :page_break_preview, :page_layout].each do |sym|
+      assert_nothing_raised { Axlsx.validate_sheet_view_type sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 'page_layout' }
+    assert_raise(ArgumentError) { Axlsx.validate_data_validation_error_style 0 }
+    
+    #active_pane_type
+    [:bottom_left, :bottom_right, :top_left, :top_right].each do |sym|
+      assert_nothing_raised { Axlsx.validate_pane_type sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_pane_type :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_pane_type 'bottom_left' }
+    assert_raise(ArgumentError) { Axlsx.validate_pane_type 0 }
+    
+    #split_state_type
+    [:frozen, :frozen_split, :split].each do |sym|
+      assert_nothing_raised { Axlsx.validate_split_state_type sym }
+    end
+    assert_raise(ArgumentError) { Axlsx.validate_split_state_type :other_symbol }
+    assert_raise(ArgumentError) { Axlsx.validate_split_state_type 'frozen_split' }
+    assert_raise(ArgumentError) { Axlsx.validate_split_state_type 0 }
   end
 end
-

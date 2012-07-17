@@ -14,6 +14,11 @@ module Axlsx
     # @return [CatAxisData]
     attr_reader :labels
 
+    # The fill color for this series.
+    # Red, green, and blue is expressed as sequence of hex digits, RRGGBB. A perceptual gamma of 2.2 is used.
+    # @return [String]
+    attr_reader :color
+
     # Creates a new series
     # @option options [Array, SimpleTypedList] data
     # @option options [Array, SimpleTypedList] labels
@@ -21,8 +26,13 @@ module Axlsx
     def initialize(chart, options={})
       @labels, @data = nil, nil
       super(chart, options)
-      @labels = CatAxisData.new(options[:labels]) unless options[:labels].nil?
-      @data = ValAxisData.new(options[:data]) unless options[:data].nil?
+      @labels = AxDataSource.new(:data => options[:labels]) unless options[:labels].nil?
+      @data = NumDataSource.new(options) unless options[:data].nil?
+    end
+
+    # @see color
+    def color=(v)
+      @color = v
     end
 
     # Serializes the object
@@ -30,6 +40,12 @@ module Axlsx
     # @return [String]
     def to_xml_string(str = '')
       super(str) do
+        if color
+          str << '<c:spPr><a:solidFill>'
+          str << '<a:srgbClr val="' << color << '"/>'
+          str << '</a:solidFill></c:spPr>'
+        end
+
         @labels.to_xml_string(str) unless @labels.nil?
         @data.to_xml_string(str) unless @data.nil?
       end
@@ -38,10 +54,10 @@ module Axlsx
     private
 
     # assigns the data for this series
-    def data=(v) DataTypeValidator.validate "Series.data", [SimpleTypedList], v; @data = v; end
+    def data=(v) DataTypeValidator.validate "Series.data", [NumDataSource], v; @data = v; end
 
     # assigns the labels for this series
-    def labels=(v) DataTypeValidator.validate "Series.labels", [SimpleTypedList], v; @labels = v; end
+    def labels=(v) DataTypeValidator.validate "Series.labels", [AxDataSource], v; @labels = v; end
 
   end
 end

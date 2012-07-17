@@ -27,18 +27,6 @@ class TestRow < Test::Unit::TestCase
     r.cells.each { |c| assert_equal(c.style,1) }
   end
 
-  def test_nil_cells
-    row = @ws.add_row([nil,1,2,nil,4,5,nil])
-    r_s_xml = Nokogiri::XML(row.to_xml_string(0, ''))
-    assert_equal(r_s_xml.xpath(".//row/c").size, 4)
-  end
-  
-  def test_nil_cell_r
-    row = @ws.add_row([nil,1,2,nil,4,5,nil])
-    r_s_xml = Nokogiri::XML(row.to_xml_string(0, ''))
-    assert_equal(r_s_xml.xpath(".//row/c").first['r'], 'B1')
-    assert_equal(r_s_xml.xpath(".//row/c").last['r'], 'F1')
-  end
 
   def test_index
     assert_equal(@row.index, @row.worksheet.rows.index(@row))
@@ -49,9 +37,22 @@ class TestRow < Test::Unit::TestCase
     assert_equal(@row.cells.last, c)
   end
 
+  def test_add_cell_autowidth_info
+    cell = @row.add_cell("this is the cell of cells")
+    width = cell.send(:autowidth)
+    assert_equal(@ws.column_info.last.width, width)
+  end
+
   def test_array_to_cells
-    r = @ws.add_row [1,2,3], :style=>0, :types=>:integer
+    r = @ws.add_row [1,2,3], :style=>1, :types=>[:integer, :string, :float]
     assert_equal(r.cells.size, 3)
+    r.cells.each do |c|
+      assert_equal(c.style, 1)
+    end
+    r = @ws.add_row [1,2,3], :style=>[1]
+    assert_equal(r.cells.first.style, 1, "only apply style to cells with at the same index of of the style array")
+    assert_equal(r.cells.last.style, 0, "only apply style to cells with at the same index of of the style array")
+
   end
 
   def test_custom_height
@@ -65,6 +66,31 @@ class TestRow < Test::Unit::TestCase
     assert_equal(15, @row.height)
   end
 
+
+  def test_ph
+    assert_raise(ArgumentError) { @row.ph = -3 }
+    assert_nothing_raised { @row.ph = true }
+    assert_equal(true, @row.ph)
+  end
+
+  def test_hidden
+    assert_raise(ArgumentError) { @row.hidden = -3 }
+    assert_nothing_raised { @row.hidden = true }
+    assert_equal(true, @row.hidden)
+  end
+
+  def test_collapsed
+    assert_raise(ArgumentError) { @row.collapsed = -3 }
+    assert_nothing_raised { @row.collapsed = true }
+    assert_equal(true, @row.collapsed)
+  end
+
+  def test_outlineLevel
+    assert_raise(ArgumentError) { @row.outlineLevel = -3 }
+    assert_nothing_raised { @row.outlineLevel = 2 }
+    assert_equal(2, @row.outlineLevel)
+  end
+
   def test_to_xml_without_custom_height
     doc = Nokogiri::XML.parse(@row.to_xml_string(0))
     assert_equal(0, doc.xpath(".//row[@ht]").size)
@@ -72,6 +98,11 @@ class TestRow < Test::Unit::TestCase
   end
 
   def test_to_xml_string
+    @row.height = 20
+    @row.s = 1
+    @row.outlineLevel = 2
+    @row.collapsed = true
+    @row.hidden = true
     r_s_xml = Nokogiri::XML(@row.to_xml_string(0, ''))
     assert_equal(r_s_xml.xpath(".//row[@r=1]").size, 1)
   end

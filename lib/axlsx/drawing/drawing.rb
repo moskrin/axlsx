@@ -10,13 +10,17 @@ module Axlsx
 
   require 'axlsx/drawing/scaling.rb'
   require 'axlsx/drawing/axis.rb'
+
+  require 'axlsx/drawing/str_val.rb'
+  require 'axlsx/drawing/num_val.rb'
+  require 'axlsx/drawing/str_data.rb'
+  require 'axlsx/drawing/num_data.rb'
+  require 'axlsx/drawing/num_data_source.rb'
+  require 'axlsx/drawing/ax_data_source.rb'
+
   require 'axlsx/drawing/ser_axis.rb'
   require 'axlsx/drawing/cat_axis.rb'
   require 'axlsx/drawing/val_axis.rb'
-
-  require 'axlsx/drawing/cat_axis_data.rb'
-  require 'axlsx/drawing/val_axis_data.rb'
-  require 'axlsx/drawing/named_axis_data.rb'
 
   require 'axlsx/drawing/marker.rb'
 
@@ -35,12 +39,16 @@ module Axlsx
   require 'axlsx/drawing/pic.rb'
   require 'axlsx/drawing/hyperlink.rb'
 
-  # A Drawing is a canvas for charts. Each worksheet has a single drawing that manages anchors.
-  # The anchors reference the charts via graphical frames. This is not a trivial relationship so please do follow the advice in the note.
-  # @note The recommended way to manage drawings is to use the Worksheet.add_chart method.
+  require 'axlsx/drawing/vml_drawing.rb'
+  require 'axlsx/drawing/vml_shape.rb'
+
+  # A Drawing is a canvas for charts and images. Each worksheet has a single drawing that manages anchors.
+  # The anchors reference the charts or images via graphical frames. This is not a trivial relationship so please do follow the advice in the note.
+  # @note The recommended way to manage drawings is to use the Worksheet.add_chart and Worksheet.add_image methods.
   # @see Worksheet#add_chart
+  # @see Worksheet#add_image
   # @see Chart
-  # see README for an example of how to create a chart.
+  # see examples/example.rb for an example of how to create a chart.
   class Drawing
 
     # The worksheet that owns the drawing
@@ -61,11 +69,17 @@ module Axlsx
       @anchors = SimpleTypedList.new [TwoCellAnchor, OneCellAnchor]
     end
 
-    # Adds an image to the chart
+
+    # Adds an image to the chart If th end_at option is specified we create a two cell anchor. By default we use a one cell anchor.
     # @note The recommended way to manage images is to use Worksheet.add_image. Please refer to that method for documentation.
     # @see Worksheet#add_image
+    # @return [Pic]
     def add_image(options={})
-      OneCellAnchor.new(self, options)
+      if options[:end_at]
+        TwoCellAnchor.new(self, options).add_pic(options)
+      else
+        OneCellAnchor.new(self, options)
+      end 
       @anchors.last.object
     end
 
@@ -142,8 +156,9 @@ module Axlsx
     # @param [String] str
     # @return [String]
     def to_xml_string(str = '')
-      str << '<?xml version="1.0" encoding="UTF-8"?>'
-      str << '<xdr:wsDr xmlns:xdr="' << XML_NS_XDR << '" xmlns:a="' << XML_NS_A << '" xmlns:c="' << XML_NS_C << '">'
+      str << '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      str << '<xdr:wsDr xmlns:xdr="' << XML_NS_XDR << '" xmlns:a="' << XML_NS_A << '">'
+
       anchors.each { |anchor| anchor.to_xml_string(str) }
       str << '</xdr:wsDr>'
     end

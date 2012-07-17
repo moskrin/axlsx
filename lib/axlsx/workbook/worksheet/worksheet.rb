@@ -4,9 +4,60 @@ module Axlsx
   # The Worksheet class represents a worksheet in the workbook.
   class Worksheet
 
+    # definition of characters which are less than the maximum width of 0-9 in the default font for use in String#count.
+    # This is used for autowidth calculations
+    # @return [String]
+    def self.thin_chars
+      @thin_chars ||= "^.acefijklrstxyzFIJL()-"
+    end
+
+    # Creates a new worksheet.
+    # @note the recommended way to manage worksheets is Workbook#add_worksheet
+    # @see Workbook#add_worksheet
+    # @option options [String] name The name of this worksheet.
+    # @option options [Hash] page_margins A hash containing page margins for this worksheet. @see PageMargins
+    # @option options [Hash] print_options A hash containing print options for this worksheet. @see PrintOptions
+    # @option options [Boolean] show_gridlines indicates if gridlines should be shown for this sheet.
+    def initialize(wb, options={})
+      self.workbook = wb
+      @workbook.worksheets << self
+      @sheet_protection = nil
+
+      initialize_page_options(options)
+      options.each do |o|
+        self.send("#{o[0]}=", o[1]) if self.respond_to? "#{o[0]}="
+      end
+    end
+
+    def initialize_page_options(options)
+      @page_margins = PageMargins.new options[:page_margins] if options[:page_margins]
+      @page_setup = PageSetup.new options[:page_setup]  if options[:page_setup]
+      @print_options = PrintOptions.new options[:print_options] if options[:print_options]
+    end
+
     # The name of the worksheet
     # @return [String]
-    attr_reader :name
+    def name
+      @name ||=  "Sheet" + (index+1).to_s
+    end
+
+    # The sheet protection object for this workbook
+    # @return [SheetProtection]
+    # @see SheetProtection
+    def sheet_protection
+      @sheet_protection ||= SheetProtection.new
+      yield @sheet_protection if block_given?
+      @sheet_protection
+    end
+
+    # The sheet view object for this worksheet
+    # @return [SheetView]
+    # @see [SheetView]
+    def sheet_view
+      @sheet_view ||= SheetView.new
+      yield @sheet_view if block_given?
+      @sheet_view
+    end
 
     # The workbook that owns this worksheet
     # @return [Workbook]
@@ -14,49 +65,51 @@ module Axlsx
 
     # The tables in this worksheet
     # @return [Array] of Table
-    attr_reader :tables
+    def tables
+      @tables ||=  Tables.new self
+    end
+
+    def comments
+      worksheet_comments.comments if worksheet_comments.has_comments?
+    end
 
     # The rows in this worksheet
     # @note The recommended way to manage rows is Worksheet#add_row
     # @return [SimpleTypedList]
     # @see Worksheet#add_row
-    attr_reader :rows
+    def rows
+      @rows ||=  SimpleTypedList.new Row
+    end
 
-    # An array of content based calculated column widths.
-    # @note a single auto fit data item is a hash with :longest => [String] and :sz=> [Integer] members.
-    # @return [Array] of Hash
-    attr_reader :auto_fit_data
-
-    # An array of merged cell ranges e.d "A1:B3"
-    # Content and formatting is read from the first cell.
-    # @return Array
-    attr_reader :merged_cells
+    # returns the sheet data as columnw
+    def cols
+      @rows.transpose
+    end
 
     # An range that excel will apply an autfilter to "A1:B3"
     # This will turn filtering on for the cells in the range.
     # The first row is considered the header, while subsequent rows are considerd to be data.
-    # @return Array
-    attr_reader :auto_filter
+    # @return String 
+    def auto_filter
+      @auto_filter ||= AutoFilter.new self
+    end
 
-    # Indicates if the worksheet should show gridlines or not
+    # Indicates if the worksheet will be fit by witdh or height to a specific number of pages.
+    # To alter the width or height for page fitting, please use page_setup.fit_to_widht or page_setup.fit_to_height.
+    # If you want the worksheet to fit on more pages (e.g. 2x2), set {PageSetup#fit_to_width} and {PageSetup#fit_to_height} accordingly.
     # @return Boolean
-    attr_reader :show_gridlines
-
-
-    # Indicates if the worksheet is selected in the workbook
-    # It is possible to have more than one worksheet selected, however it might cause issues
-    # in some older versions of excel when using copy and paste.
-    # @return Boolean
-    attr_reader :selected
-
-    # Indicates if the worksheet should print in a single page
-    # @return Boolean
-    attr_reader :fit_to_page
+    # @see #page_setup
+    def fit_to_page?
+      return false unless self.instance_values.keys.include?('page_setup')
+      page_setup.fit_to_page?
+    end
 
 
     # Column info for the sheet
     # @return [SimpleTypedList]
-    attr_reader :column_info
+    def column_info
+      @column_info ||= Cols.new self
+    end
 
     # Page margins for printing the worksheet.
     # @example
@@ -78,44 +131,51 @@ module Axlsx
       @page_margins ||= PageMargins.new
       yield @page_margins if block_given?
       @page_margins
-
     end
 
-    # Creates a new worksheet.
-    # @note the recommended way to manage worksheets is Workbook#add_worksheet
-    # @see Workbook#add_worksheet
-    # @option options [String] name The name of this worksheet.
-    # @option options [Hash] page_margins A hash containing page margins for this worksheet. @see PageMargins
-    # @option options [Boolean] show_gridlines indicates if gridlines should be shown for this sheet.
-    def initialize(wb, options={})
-      self.workbook = wb
-      @workbook.worksheets << self
+    # Page setup settings for printing the worksheet.
+    # @example
+    #      wb = Axlsx::Package.new.workbook
+    #
+    #      # using options when creating the worksheet.
+    #      ws = wb.add_worksheet :page_setup => {:fit_to_width => 2, :orientation => :landscape}
+    #
+    #      # use the set method of the page_setup object
+    #      ws.page_setup.set(:paper_width => "297mm", :paper_height => "210mm")
+    #
+    #      # setup page in a block
+    #      ws.page_setup do |page|
+    #        page.scale = 80
+    #        page.orientation = :portrait
+    #      end
+    # @see PageSetup#initialize
+    # @return [PageSetup]
+    def page_setup
+      @page_setup ||= PageSetup.new
+      yield @page_setup if block_given?
+      @page_setup
+    end
 
-      @drawing = @page_margins = @auto_filter = nil
-      @merged_cells = []
-      @auto_fit_data = []
-
-      @selected = false
-      @show_gridlines = true
-      self.name = "Sheet" + (index+1).to_s
-      @page_margins = PageMargins.new options[:page_margins] if options[:page_margins]
-
-      @rows = SimpleTypedList.new Row
-      @column_info = SimpleTypedList.new Col
-      # @cols = SimpleTypedList.new Cell
-      @tables = SimpleTypedList.new Table
-
-      if self.workbook.use_autowidth
-        require 'RMagick' unless defined?(Magick)
-        @magick_draw = Magick::Draw.new
-      else
-        @magick_draw = nil
-      end
-
-      options.each do |o|
-        self.send("#{o[0]}=", o[1]) if self.respond_to? "#{o[0]}="
-      end
-
+    # Options for printing the worksheet.
+    # @example
+    #      wb = Axlsx::Package.new.workbook
+    #      # using options when creating the worksheet.
+    #      ws = wb.add_worksheet :print_options => {:grid_lines => true, :horizontal_centered => true}
+    #
+    #      # use the set method of the page_margins object
+    #      ws.print_options.set(:headings => true)
+    #
+    #      # set page margins in a block
+    #      ws.print_options do |options|
+    #        options.horizontal_centered = true
+    #        options.vertical_centered = true
+    #      end
+    # @see PrintOptions#initialize
+    # @return [PrintOptions]
+    def print_options
+      @print_options ||= PrintOptions.new
+      yield @print_options if block_given?
+      @print_options
     end
 
     # convinience method to access all cells in this worksheet
@@ -132,75 +192,83 @@ module Axlsx
     #        worksheet.merge_cells worksheet.rows.first.cells[(2..4)]
     #        #alternatively you can do it from a single cell
     #        worksheet["C1"].merge worksheet["E1"]
-    # @param [Array, string]
+    # @param [Array, string] cells
     def merge_cells(cells)
-      @merged_cells << if cells.is_a?(String)
-                         cells
-                       elsif cells.is_a?(Array)
-                         cells = cells.sort { |x, y| x.r <=> y.r }
-                         "#{cells.first.r}:#{cells.last.r}"
-                       end
+      merged_cells.add cells
     end
 
+    # Adds a new protected cell range to the worksheet. Note that protected ranges are only in effect when sheet protection is enabled.
+    # @param [String|Array] cells The string reference for the cells to protect or an array of cells.
+    # @return [ProtectedRange]
+    # @note When using an array of cells, a contiguous range is created from the minimum top left to the maximum top bottom of the cells provided.
+    def protect_range(cells)
+      protected_ranges.add_range(cells)
+    end
 
-    # The demensions of a worksheet. This is not actually a required element by the spec,
+    # The dimensions of a worksheet. This is not actually a required element by the spec,
     # but at least a few other document readers expect this for conversion
-    # @return [String] the A1:B2 style reference for the first and last row column intersection in the workbook
+    # @return [Dimension]
     def dimension
-      dim_start = rows.first.cells.first == nil ? 'A1' : rows.first.cells.first.r
-      dim_end = rows.last.cells.last == nil ? 'AA:200' : rows.last.cells.last.r
-      "#{dim_start}:#{dim_end}"
+      @dimension ||= Dimension.new self
+    end
+
+    # The sheet properties for this workbook.
+    # Currently only pageSetUpPr -> fitToPage is implemented
+    # @return [SheetPr]
+    def sheet_pr
+      @sheet_pr ||= SheetPr.new self
     end
 
     # Indicates if gridlines should be shown in the sheet.
     # This is true by default.
     # @return [Boolean]
+    # @deprecated Use {SheetView#show_grid_lines=} instead.
     def show_gridlines=(v)
+      warn('axlsx::DEPRECIATED: Worksheet#show_gridlines= has been depreciated. This value can be set over SheetView#show_grid_lines=.')
       Axlsx::validate_boolean v
-      @show_gridlines = v
+      sheet_view.show_grid_lines = v
     end
 
     # @see selected
     # @return [Boolean]
+    # @deprecated Use {SheetView#tab_selected=} instead.
     def selected=(v)
+      warn('axlsx::DEPRECIATED: Worksheet#selected= has been depreciated. This value can be set over SheetView#tab_selected=.')
       Axlsx::validate_boolean v
-      @selected = v
+      sheet_view.tab_selected = v
     end
 
+    # Indicates if the worksheet should show gridlines or not
+    # @return Boolean
+    # @deprecated Use {SheetView#show_grid_lines} instead.
+    def show_gridlines
+      warn('axlsx::DEPRECIATED: Worksheet#show_gridlines has been depreciated. This value can get over SheetView#show_grid_lines.')
+      sheet_view.show_grid_lines
+    end
 
-    # Indicates if the worksheet should print in a single page.
-    # This is true by default.
+    # Indicates if the worksheet is selected in the workbook
+    # It is possible to have more than one worksheet selected, however it might cause issues
+    # in some older versions of excel when using copy and paste.
+    # @return Boolean
+    # @deprecated Use {SheetView#tab_selected} instead.
+    def selected
+      warn('axlsx::DEPRECIATED: Worksheet#selected has been depreciated. This value can get over SheetView#tab_selected.')
+      sheet_view.tab_selected
+    end
+
+    # (see #fit_to_page)
     # @return [Boolean]
     def fit_to_page=(v)
-      Axlsx::validate_boolean v
-      @fit_to_page = v
-    end
-
-
-    # returns the column and row index for a named based cell
-    # @param [String] name The cell or cell range to return. "A1" will return the first cell of the first row.
-    # @return [Cell]
-    def name_to_cell(name)
-      col_index, row_index = *Axlsx::name_to_indices(name)
-      r = rows[row_index]
-      r.cells[col_index] if r
+      warn('axlsx::DEPRECIATED: Worksheet#fit_to_page has been depreciated. This value will automatically be set for you when you use PageSetup#fit_to.')
+      fit_to_page?
     end
 
     # The name of the worksheet
     # The name of a worksheet must be unique in the workbook, and must not exceed 31 characters
     # @param [String] v
-    def name=(v)
-      DataTypeValidator.validate "Worksheet.name", String, v
-      raise ArgumentError, (ERR_SHEET_NAME_TOO_LONG % v) if v.size > 31
-      sheet_names = @workbook.worksheets.map { |s| s.name }
-      raise ArgumentError, (ERR_DUPLICATE_SHEET_NAME % v) if sheet_names.include?(v)
-      @name=v
-    end
-
-    # The absolute auto filter range
-    # @see auto_filter
-    def abs_auto_filter
-      Axlsx.cell_range(@auto_filter.split(':').collect { |name| name_to_cell(name)}) if @auto_filter
+    def name=(name)
+      validate_sheet_name name
+      @name=Axlsx::coder.encode(name)
     end
 
     # The auto filter range for the worksheet
@@ -208,7 +276,7 @@ module Axlsx
     # @see auto_filter
     def auto_filter=(v)
       DataTypeValidator.validate "Worksheet.auto_filter", String, v
-      @auto_filter = v
+      auto_filter.range = v
     end
 
     # The part name of this worksheet
@@ -240,7 +308,7 @@ module Axlsx
     # @return [Drawing]
     # @see Worksheet#add_chart
     def drawing
-      @drawing || @drawing = Axlsx::Drawing.new(self)
+      worksheet_drawing.drawing
     end
 
     # Adds a row to the worksheet and updates auto fit data.
@@ -284,70 +352,39 @@ module Axlsx
     # @option options [Float] height the row's height (in points)
     def add_row(values=[], options={})
       Row.new(self, values, options)
-      update_column_info @rows.last.cells, options.delete(:widths) ||[], options.delete(:style) || []
-      # update_auto_fit_data @rows.last.cells, options.delete(:widths) || []
+      update_column_info @rows.last.cells, options.delete(:widths) || []
       yield @rows.last if block_given?
       @rows.last
     end
 
     alias :<< :add_row
 
-    # Set the style for cells in a specific row
-    # @param [Integer] index or range of indexes in the table
-    # @param [Integer] the cellXfs index
-    # @option options [Integer] col_offset only cells after this column will be updated.
-    # @note You can also specify the style in the add_row call
-    # @see Worksheet#add_row
-    # @see README.md for an example
-    def row_style(index, style, options={})
-      offset = options.delete(:col_offset) || 0
-      rs = @rows[index]
-      if rs.is_a?(Array)
-        rs.each { |r| r.cells[(offset..-1)].each { |c| c.style = style } }
-      else
-        rs.cells[(offset..-1)].each { |c| c.style = style }
-      end
+    # Add conditional formatting to this worksheet.
+    #
+    # @param [String] cells The range to apply the formatting to
+    # @param [Array|Hash] rules An array of hashes (or just one) to create Conditional formatting rules from.
+    # @example This would format column A whenever it is FALSE.
+    #        # for a longer example, see examples/example_conditional_formatting.rb (link below)
+    #        worksheet.add_conditional_formatting( "A1:A1048576", { :type => :cellIs, :operator => :equal, :formula => "FALSE", :dxfId => 1, :priority => 1 }
+    #
+    # @see ConditionalFormattingRule#initialize
+    # @see file:examples/example_conditional_formatting.rb
+    def add_conditional_formatting(cells, rules)
+      cf = ConditionalFormatting.new( :sqref => cells )
+      cf.add_rules rules
+      conditional_formattings << cf
+      conditional_formattings      
     end
 
-    # returns the sheet data as columnw
-    def cols
-      @rows.transpose
-    end
-
-
-    # Set the style for cells in a specific column
-    # @param [Integer] index the index of the column
-    # @param [Integer] the cellXfs index
-    # @option options [Integer] row_offset only cells after this column will be updated.
-    # @note You can also specify the style for specific columns in the call to add_row by using an array for the :styles option
-    # @see Worksheet#add_row
-    # @see README.md for an example
-    def col_style(index, style, options={})
-      offset = options.delete(:row_offset) || 0
-      @rows[(offset..-1)].each do |r|
-        cells = r.cells[index]
-        next unless cells
-        if cells.is_a?(Array)
-          cells.each { |c| c.style = style }
-        else
-          cells.style = style
-        end
-      end
-    end
-
-    # This is a helper method that Lets you specify a fixed width for multiple columns in a worksheet in one go.
-    # Axlsx is sparse, so if you have not set data for a column, you cannot set the width.
-    # Setting a fixed column width to nil will revert the behaviour back to calculating the width for you.
-    # @example This would set the first and third column widhts but leave the second column in autofit state.
-    #      ws.column_widths 7.2, nil, 3
-    # @note For updating only a single column it is probably easier to just set ws.auto_fit_data[col_index][:fixed] directly
-    # @param [Integer|Float|Fixnum|nil] values
-    def column_widths(*args)
-      args.each_with_index do |value, index|
-        Axlsx::validate_unsigned_numeric(value) unless value == nil
-        @column_info[index] ||= Col.new index+1, index+1
-        @column_info[index].width = value
-      end
+    # Add data validation to this worksheet.
+    #
+    # @param [String] cells The cells the validation will apply to.
+    # @param [hash] data_validation options defining the validation to apply.
+    # @see  examples/data_validation.rb for an example
+    def add_data_validation(cells, data_validation)
+      dv = DataValidation.new(data_validation)
+      dv.sqref = cells
+      data_validations << dv
     end
 
     # Adds a chart to this worksheets drawing. This is the recommended way to create charts for your worksheet. This method wraps the complexity of dealing with ooxml drawing, anchors, markers graphic frames chart objects and all the other dirty details.
@@ -364,125 +401,216 @@ module Axlsx
     # @see Line3DChart
     # @see README for examples
     def add_chart(chart_type, options={})
-      chart = drawing.add_chart(chart_type, options)
+      chart = worksheet_drawing.add_chart(chart_type, options)
       yield chart if block_given?
       chart
     end
 
     # needs documentation
     def add_table(ref, options={})
-      table = Table.new(ref, self, options)
-      @tables << table
-      yield table if block_given?
-      table
+      tables << Table.new(ref, self, options)
+      yield tables.last if block_given?
+      tables.last
+    end
+
+    # Shortcut to worsksheet_comments#add_comment
+    def add_comment(options={})
+      worksheet_comments.add_comment(options)
     end
 
     # Adds a media item to the worksheets drawing
-    # @param [Class] media_type
-    # @option options [] unknown
+    # @option [Hash] options options passed to drawing.add_image
     def add_image(options={})
-      image = drawing.add_image(options)
+      image = worksheet_drawing.add_image(options)
       yield image if block_given?
       image
     end
 
-    # Serializes the object
-    # @param [String] str
+    # This is a helper method that Lets you specify a fixed width for multiple columns in a worksheet in one go.
+    # Axlsx is sparse, so if you have not set data for a column, you cannot set the width.
+    # Setting a fixed column width to nil will revert the behaviour back to calculating the width for you on the next call to add_row.
+    # @example This would set the first and third column widhts but leave the second column in autofit state.
+    #      ws.column_widths 7.2, nil, 3
+    # @note For updating only a single column it is probably easier to just set the width of the ws.column_info[col_index].width directly
+    # @param [Integer|Float|Fixnum|nil] widths
+    def column_widths(*widths)
+      widths.each_with_index do |value, index|
+        next if value == nil
+        Axlsx::validate_unsigned_numeric(value) unless value == nil
+        find_or_create_column_info(index).width = value
+      end
+    end
+
+    # Set the style for cells in a specific column
+    # @param [Integer] index the index of the column
+    # @param [Integer] style the cellXfs index
+    # @param [Hash] options
+    # @option [Integer] :row_offset only cells after this column will be updated.
+    # @note You can also specify the style for specific columns in the call to add_row by using an array for the :styles option
+    # @see Worksheet#add_row
+    # @see README.md for an example
+    def col_style(index, style, options={})
+      offset = options.delete(:row_offset) || 0
+      cells = @rows[(offset..-1)].map { |row| row.cells[index] }.flatten.compact
+      cells.each { |cell| cell.style = style }
+    end
+
+    # Set the style for cells in a specific row
+    # @param [Integer] index or range of indexes in the table
+    # @param [Integer] style the cellXfs index
+    # @param [Hash] options the options used when applying the style
+    # @option [Integer] :col_offset only cells after this column will be updated.
+    # @note You can also specify the style in the add_row call
+    # @see Worksheet#add_row
+    # @see README.md for an example
+    def row_style(index, style, options={})
+      offset = options.delete(:col_offset) || 0
+      cells = cols[(offset..-1)].map { |column| column[index] }.flatten.compact
+      cells.each { |cell| cell.style = style }
+    end
+
+    # Serializes the worksheet object to an xml string
+    # This intentionally does not use nokogiri for performance reasons
     # @return [String]
     def to_xml_string
       str = '<?xml version="1.0" encoding="UTF-8"?>'
-      str.concat "<worksheet xmlns=\"%s\" xmlns:r=\"%s\">" % [XML_NS, XML_NS_R]
-      str.concat "<sheetPr><pageSetUpPr fitToPage=\"%s\"></pageSetUpPr></sheetPr>" % fit_to_page if fit_to_page
-      str.concat "<dimension ref=\"%s\"></dimension>" % dimension unless rows.size == 0
-      str.concat "<sheetViews><sheetView tabSelected='%s' workbookViewId='0' showGridLines='%s'><selection activeCell=\"A1\" sqref=\"A1\"/></sheetView></sheetViews>" % [@selected, show_gridlines]
-
-      if @column_info.size > 0
-        str << "<cols>"
-        @column_info.each { |col| col.to_xml_string(str) }
-        str.concat '</cols>'
+      str << worksheet_node
+      serializable_parts.each do |item|
+        item.to_xml_string(str) if item
       end
-      str.concat '<sheetData>'
-      @rows.each_with_index { |row, index| row.to_xml_string(index, str) }
-      str.concat '</sheetData>'
-      str.concat "<autoFilter ref='%s'></autoFilter>" % @auto_filter if @auto_filter
-      str.concat "<mergeCells count='%s'>%s</mergeCells>" % [@merged_cells.size, @merged_cells.reduce('') { |memo, obj| memo += "<mergeCell ref='%s'></mergeCell>" % obj } ] unless @merged_cells.empty?
-      page_margins.to_xml_string(str) if @page_margins
-      str.concat "<drawing r:id='rId1'></drawing>" if @drawing
-      unless @tables.empty?
-        str.concat "<tableParts count='%s'>%s</tableParts>" % [@tables.size, @tables.reduce('') { |memo, obj| memo += "<tablePart r:id='%s'/>" % obj.rId }]
-      end
-      str + '</worksheet>'
+      str << '</worksheet>'
+      str.gsub(/[[:cntrl:]]/,'')
     end
 
     # The worksheet relationships. This is managed automatically by the worksheet
     # @return [Relationships]
     def relationships
-        r = Relationships.new
-        @tables.each do |table|
-          r << Relationship.new(TABLE_R, "../#{table.pn}")
-        end
-        r << Relationship.new(DRAWING_R, "../#{@drawing.pn}") if @drawing
-        r
+      r = Relationships.new
+      r + [tables.relationships, 
+           worksheet_comments.relationships, 
+           worksheet_drawing.relationship].flatten.compact
+      r
     end
 
     # Returns the cell or cells defined using excel style A1:B3 references.
     # @param [String|Integer] cell_def the string defining the cell or range of cells, or the rownumber
     # @return [Cell, Array]
-
     def [] (cell_def)
       return rows[cell_def] if cell_def.is_a?(Integer)
-
-      parts = cell_def.split(':')
-      first = name_to_cell parts[0]
+      parts = cell_def.split(':').map{ |part| name_to_cell part }
       if parts.size == 1
-        first
+        parts.first
       else
-        cells = []
-        last = name_to_cell(parts[1])
-        rows[(first.row.index..last.row.index)].each do |r|
-          r.cells[(first.index..last.index)].each do |c|
-            cells << c
-          end
-        end
-        cells
+        range(*parts)
       end
+    end
+
+    # returns the column and row index for a named based cell
+    # @param [String] name The cell or cell range to return. "A1" will return the first cell of the first row.
+    # @return [Cell]
+    def name_to_cell(name)
+      col_index, row_index = *Axlsx::name_to_indices(name)
+      r = rows[row_index]
+      r.cells[col_index] if r
     end
 
     private
 
-    # assigns the owner workbook for this worksheet
-    def workbook=(v) DataTypeValidator.validate "Worksheet.workbook", Workbook, v; @workbook = v; end
+    def validate_sheet_name(name)
+      DataTypeValidator.validate "Worksheet.name", String, name
+      raise ArgumentError, (ERR_SHEET_NAME_TOO_LONG % name) if name.size > 31
+      raise ArgumentError, (ERR_SHEET_NAME_COLON_FORBIDDEN % name) if name.include? ':'
+      name = Axlsx::coder.encode(name) 
+      sheet_names = @workbook.worksheets.map { |s| s.name }
+      raise ArgumentError, (ERR_DUPLICATE_SHEET_NAME % name) if sheet_names.include?(name)
+    end
 
 
-    def update_column_info(cells, widths=[], style=[])
-      styles = self.workbook.styles
-      cellXfs, fonts = styles.cellXfs, styles.fonts
-      sz = 11
+    def serializable_parts
+      [sheet_pr, dimension, sheet_view, column_info,
+       sheet_data, @sheet_protection, protected_ranges,
+       auto_filter, merged_cells, conditional_formattings,
+       data_validations, print_options, page_margins,
+       page_setup, worksheet_drawing, worksheet_comments,
+       tables]
+    end
 
-      cells.each_with_index do |cell, index|
-        @column_info[index] ||= Col.new index+1, index+1
-        col = @column_info[index]
-        width = widths[index]
-        col.width = width if [Integer, Float, Fixnum].include?(width.class)
-        c_style = style[index] if [Integer, Fixnum].include?(style[index].class)
-        #BUG - col.width wil only be nil the first time the column object is created. Subsequent row adds will not update the width of the column! col.width ||
-        next if width == :ignore ||  col.width || (cell.value.is_a?(String) && cell.value.start_with?('='))
-        if self.workbook.use_autowidth
-          cell_xf = cellXfs[(c_style || 0)]
-          font = fonts[(cell_xf.fontId || 0)]
-          sz = cell.sz || font.sz || sz
-          col.width = [(col.width || 0), calculate_width(cell.value.to_s, sz)].max
+    def range(*cell_def)
+      first, last = cell_def
+      cells = []
+      rows[(first.row.index..last.row.index)].each do |r|
+        r.cells[(first.index..last.index)].each do |c|
+          cells << c
         end
       end
+      cells
     end
 
-    def calculate_width(text, sz)
-      mdw_count, font_scale, mdw = 0, sz/11.0, 6.0
-      mdw_count = text.scan(/./mu).reduce(0) do | count, char |
-        count +=1 if @magick_draw.get_type_metrics(char).max_advance >= mdw
-        count
-      end
-      ((mdw_count * mdw + 5) / mdw * 256) / 256.0 * font_scale
+    # A collection of protected ranges in the worksheet
+    # @note The recommended way to manage protected ranges is with Worksheet#protect_range
+    # @see Worksheet#protect_range
+    # @return [SimpleTypedList] The protected ranges for this worksheet
+    def protected_ranges
+      @protected_ranges ||= ProtectedRanges.new self 
+      # SimpleTypedList.new ProtectedRange
     end
+
+    # conditional formattings
+    # @return [Array]
+    def conditional_formattings
+      @conditional_formattings ||= ConditionalFormattings.new self
+    end
+
+    # data validations array
+    # @return [Array]
+    def data_validations
+      @data_validations ||= DataValidations.new self 
+    end
+
+    # merged cells array
+    # @return [Array]
+    def merged_cells
+      @merged_cells ||= MergedCells.new self
+    end
+
+
+    # Helper method for parsingout the root node for worksheet
+    # @return [String]
+    def worksheet_node
+      "<worksheet xmlns=\"%s\" xmlns:r=\"%s\">" % [XML_NS, XML_NS_R]
+    end
+
+    def sheet_data
+      @sheet_data ||= SheetData.new self
+    end
+
+    def worksheet_drawing
+      @worksheet_drawing ||= WorksheetDrawing.new self
+    end
+
+    # The comments associated with this worksheet
+    # @return [SimpleTypedList]
+    def worksheet_comments
+      @worksheet_comments ||= WorksheetComments.new self
+    end
+
+    def workbook=(v) DataTypeValidator.validate "Worksheet.workbook", Workbook, v; @workbook = v; end
+
+    def styles
+      @styles ||= self.workbook.styles
+    end
+
+    def update_column_info(cells, widths=[])
+      cells.each_with_index do |cell, index|
+        col = find_or_create_column_info(index)
+        next if widths[index] == :ignore
+        col.update_width(cell, widths[index], workbook.use_autowidth)
+      end
+    end
+
+    def find_or_create_column_info(index)
+      column_info[index] ||= Col.new(index + 1, index + 1)
+    end
+
   end
 end

@@ -5,8 +5,7 @@ class TestTwoCellAnchor < Test::Unit::TestCase
   def setup
     p = Axlsx::Package.new
     @ws = p.workbook.add_worksheet
-    row = @ws.add_row ["one", 1, Time.now]
-    title = Axlsx::Title.new
+    @ws.add_row ["one", 1, Time.now]
     chart = @ws.add_chart Axlsx::Bar3DChart
     @anchor = chart.graphic_frame.anchor
   end
@@ -23,7 +22,7 @@ class TestTwoCellAnchor < Test::Unit::TestCase
 
 
   def test_options
-    assert_raise(ArgumentError, 'invalid start_at') { @ws.add_chart Axlsx::Chart, :start_at=>[1] }
+    assert_raise(ArgumentError, 'invalid start_at') { @ws.add_chart Axlsx::Chart, :start_at=>"1" }
     assert_raise(ArgumentError, 'invalid end_at') { @ws.add_chart Axlsx::Chart, :start_at=>[1,2], :end_at => ["a", 4] }
     # this is actually raised in the graphic frame
     assert_raise(ArgumentError, 'invalid Chart') { @ws.add_chart Axlsx::TwoCellAnchor }

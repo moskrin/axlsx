@@ -1,15 +1,41 @@
 # -*- coding: utf-8 -*-
 module Axlsx
-
+require 'axlsx/workbook/worksheet/auto_filter.rb'
 require 'axlsx/workbook/worksheet/date_time_converter.rb'
+require 'axlsx/workbook/worksheet/protected_range.rb'
+require 'axlsx/workbook/worksheet/protected_ranges.rb'
 require 'axlsx/workbook/worksheet/cell.rb'
 require 'axlsx/workbook/worksheet/page_margins.rb'
+require 'axlsx/workbook/worksheet/page_setup.rb'
+require 'axlsx/workbook/worksheet/print_options.rb'
+require 'axlsx/workbook/worksheet/cfvo.rb'
+require 'axlsx/workbook/worksheet/color_scale.rb'
+require 'axlsx/workbook/worksheet/data_bar.rb'
+require 'axlsx/workbook/worksheet/icon_set.rb'
+require 'axlsx/workbook/worksheet/conditional_formatting.rb'
+require 'axlsx/workbook/worksheet/conditional_formatting_rule.rb'
+require 'axlsx/workbook/worksheet/conditional_formattings.rb'
 require 'axlsx/workbook/worksheet/row.rb'
 require 'axlsx/workbook/worksheet/col.rb'
+require 'axlsx/workbook/worksheet/cols.rb'
+require 'axlsx/workbook/worksheet/comments.rb'
+require 'axlsx/workbook/worksheet/comment.rb'
+require 'axlsx/workbook/worksheet/merged_cells.rb'
+require 'axlsx/workbook/worksheet/sheet_protection.rb'
+require 'axlsx/workbook/worksheet/sheet_pr.rb'
+require 'axlsx/workbook/worksheet/dimension.rb'
+require 'axlsx/workbook/worksheet/sheet_data.rb'
+require 'axlsx/workbook/worksheet/worksheet_drawing.rb'
+require 'axlsx/workbook/worksheet/worksheet_comments.rb'
 require 'axlsx/workbook/worksheet/worksheet.rb'
 require 'axlsx/workbook/shared_strings_table.rb'
 require 'axlsx/workbook/worksheet/table.rb'
-
+require 'axlsx/workbook/worksheet/tables.rb'
+require 'axlsx/workbook/worksheet/data_validation.rb'
+require 'axlsx/workbook/worksheet/data_validations.rb'
+require 'axlsx/workbook/worksheet/sheet_view.rb'
+require 'axlsx/workbook/worksheet/pane.rb'
+require 'axlsx/workbook/worksheet/selection.rb'
   # The Workbook class is an xlsx workbook that manages worksheets, charts, drawings and styles.
   # The following parts of the Office Open XML spreadsheet specification are not implimented in this version.
   #
@@ -76,6 +102,9 @@ require 'axlsx/workbook/worksheet/table.rb'
     # @return [SimpleTypedList]
     attr_reader :drawings
 
+    # pretty sure this two are always empty and can be removed.
+
+
     # A colllection of tables associated with this workbook
     # @note The recommended way to manage drawings is Worksheet#add_table
     # @see Worksheet#add_table
@@ -83,6 +112,14 @@ require 'axlsx/workbook/worksheet/table.rb'
     # @return [SimpleTypedList]
     attr_reader :tables
 
+    # A colllection of comments associated with this workbook
+    # @note The recommended way to manage comments is Worksheet#add_comment
+    # @see Worksheet#add_comment
+    # @see Comment
+    # @return [Comments]
+    def comments
+      self.worksheets.map { |ws| ws.comments }.compact
+    end
 
     # The styles associated with this workbook
     # @note The recommended way to manage styles is Styles#add_style
@@ -117,7 +154,11 @@ require 'axlsx/workbook/worksheet/table.rb'
       @drawings = SimpleTypedList.new Drawing
       @charts = SimpleTypedList.new Chart
       @images = SimpleTypedList.new Pic
+      # Are these even used????? Check package serialization parts
       @tables = SimpleTypedList.new Table
+      @comments = SimpleTypedList.new Comments
+
+
       @use_autowidth = true
 
       self.date1904= !options[:date1904].nil? && options[:date1904]
@@ -140,12 +181,14 @@ require 'axlsx/workbook/worksheet/table.rb'
     def self.date1904() @@date1904; end
 
     # Indicates if the workbook should use autowidths or not.
-    # this must be set before instantiating a worksheet to avoid Rmagix inclusion
+    # @note This gem no longer depends on RMagick for autowidth
+    #     calculation. Thus the performance benefits of turning this off are
+    #     marginal unless you are creating a very large sheet.
     # @return [Boolean]
     def use_autowidth() @use_autowidth; end
 
     # see @use_autowidth
-    def use_autowidth=(v) Axlsx::validate_boolean v; @use_autowidth = v; end
+    def use_autowidth=(v=true) Axlsx::validate_boolean v; @use_autowidth = v; end
 
     # Adds a worksheet to this workbook
     # @return [Worksheet]
@@ -204,9 +247,9 @@ require 'axlsx/workbook/worksheet/table.rb'
       str << '</sheets>'
       str << '<definedNames>'
       @worksheets.each_with_index do |sheet, index|
-        if sheet.auto_filter
+        if sheet.auto_filter.defined_name
           str << '<definedName name="_xlnm._FilterDatabase" localSheetId="' << index.to_s << '" hidden="1">'
-          str << sheet.abs_auto_filter << '</definedName>'
+          str << sheet.auto_filter.defined_name << '</definedName>'
         end
       end
       str << '</definedNames>'

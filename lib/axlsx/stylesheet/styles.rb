@@ -14,6 +14,7 @@ module Axlsx
   require 'axlsx/stylesheet/table_style.rb'
   require 'axlsx/stylesheet/table_styles.rb'
   require 'axlsx/stylesheet/table_style_element.rb'
+  require 'axlsx/stylesheet/dxf.rb'
   require 'axlsx/stylesheet/xf.rb'
   require 'axlsx/stylesheet/cell_protection.rb'
 
@@ -132,11 +133,12 @@ module Axlsx
     # @option options [Integer] family The font family to use.
     # @option options [String] font_name The name of the font to use
     # @option options [Integer] num_fmt The number format to apply
-    # @option options [String] format_code The formatting to apply. If this is specified, num_fmt is ignored.
+    # @option options [String] format_code The formatting to apply. 
     # @option options [Integer|Hash] border The border style to use.
     # @option options [String] bg_color The background color to apply to the cell
     # @option options [Boolean] hidden Indicates if the cell should be hidden
     # @option options [Boolean] locked Indicates if the cell should be locked
+    # @option options [Symbol] type What type of style is this. Options are [:dxf, :xf]. :xf is default
     # @option options [Hash] alignment A hash defining any of the attributes used in CellAlignment
     # @see CellAlignment
     #
@@ -189,67 +191,156 @@ module Axlsx
     #   ws.add_row :values => ["Q4", 2000, 20], :style=>[title, currency, percent]
     #   f = File.open('example_you_got_style.xlsx', 'w')
     #   p.serialize(f)
+    #
+    # @example Differential styling
+    #   # Differential styles apply on top of cell styles. Used in Conditional Formatting. Must specify :type => :dxf, and you can't use :num_fmt.
+    #   require "rubygems" # if that is your preferred way to manage gems!
+    #   require "axlsx"
+    #
+    #   p = Axlsx::Package.new
+    #   wb = p.workbook
+    #   ws = wb.add_worksheet
+    #
+    #   # define your styles
+    #   profitable = wb.styles.add_style(:bg_color => "FFFF0000",
+    #                              :fg_color=>"#FF000000",
+    #                              :type => :dxf)
+    #
+    #   ws.add_row :values => ["Genreated At:", Time.now], :styles=>[nil, date_time]
+    #   ws.add_row :values => ["Previous Year Quarterly Profits (JPY)"], :style=>title
+    #   ws.add_row :values => ["Quarter", "Profit", "% of Total"], :style=>title
+    #   ws.add_row :values => ["Q1", 4000, 40], :style=>[title, currency, percent]
+    #   ws.add_row :values => ["Q2", 3000, 30], :style=>[title, currency, percent]
+    #   ws.add_row :values => ["Q3", 1000, 10], :style=>[title, currency, percent]
+    #   ws.add_row :values => ["Q4", 2000, 20], :style=>[title, currency, percent]
+    #
+    #   ws.add_conditional_formatting("A1:A7", { :type => :cellIs, :operator => :greaterThan, :formula => "2000", :dxfId => profitable, :priority => 1 })
+    #   f = File.open('example_differential_styling', 'w')
+    #   p.serialize(f)
+    #
     def add_style(options={})
+      # Default to :xf
+      options[:type] ||= :xf
+      raise ArgumentError, "Type must be one of [:xf, :dxf]" unless [:xf, :dxf].include?(options[:type] )
 
-      numFmtId = if options[:format_code]
-                   n = @numFmts.map{ |f| f.numFmtId }.max + 1
-                   numFmts << NumFmt.new(:numFmtId => n, :formatCode=> options[:format_code])
-                   n
-                 else
-                   options[:num_fmt] || 0
-                 end
+      fill = parse_fill_options options
+      font = parse_font_options options
+      numFmt = parse_num_fmt_options options
+      border = parse_border_options options
+      alignment = parse_alignment_options options
+      protection = parse_protection_options options
 
-      borderId = options[:border] || 0
-
-      if borderId.is_a?(Hash)
-        raise ArgumentError, "border hash definitions must include both style and color" unless borderId.keys.include?(:style) && borderId.keys.include?(:color)
-
-        s = borderId[:style]
-        c = borderId[:color]
-        edges = borderId[:edges] || [:left, :right, :top, :bottom]
-
-        border = Border.new
-        edges.each {|pr| border.prs << BorderPr.new(:name => pr, :style=>s, :color => Color.new(:rgb => c))}
-        borderId = self.borders << border
+      case options[:type]
+      when :dxf
+        style = Dxf.new :fill => fill, :font => font, :numFmt => numFmt, :border => border, :alignment => alignment, :protection => protection
+      else
+        style = Xf.new :fillId=>fill || 0, :fontId=>font || 0, :numFmtId=>numFmt || 0, :borderId=>border || 0, :alignment => alignment, :protection => protection, :applyFill=>!fill.nil?, :applyFont=>!font.nil?, :applyNumberFormat =>!numFmt.nil?, :applyBorder=>!border.nil?, :applyAlignment => !alignment.nil?, :applyProtection => !protection.nil?
       end
 
-      raise ArgumentError, "Invalid borderId" unless borderId < borders.size
+      options[:type] == :xf ? cellXfs << style : dxfs << style
+    end
 
-      fill = if options[:bg_color]
-               color = Color.new(:rgb=>options[:bg_color])
-               pattern = PatternFill.new(:patternType =>:solid, :fgColor=>color)
-               fills << Fill.new(pattern)
-             else
-               0
-             end
+    # parses add_style options for protection styles
+    # noop if options hash does not include :hide or :locked key
 
-      fontId = if (options.values_at(:fg_color, :sz, :b, :i, :u, :strike, :outline, :shadow, :charset, :family, :font_name).length)
-                 font = Font.new()
-                 [:b, :i, :u, :strike, :outline, :shadow, :charset, :family, :sz].each { |k| font.send("#{k}=", options[k]) unless options[k].nil? }
-                 font.color = Color.new(:rgb => options[:fg_color]) unless options[:fg_color].nil?
-                 font.name = options[:font_name] unless options[:font_name].nil?
-                 fonts << font
-               else
-                 0
-               end
+    # @option options [Boolean] hide boolean value defining cell protection attribute for hiding.
+    # @option options [Boolean] locked boolean value defining cell protection attribute for locking.
+    # @return [CellProtection]
+    def parse_protection_options(options={})
+      return if (options.keys & [:hidden, :locked]).empty?
+      CellProtection.new(options)
+    end
 
-      applyProtection = (options[:hidden] || options[:locked]) ? 1 : 0
+    # parses add_style options for alignment
+    # noop if options hash does not include :alignment key
+    # @option options [Hash] alignment A hash of options to prive the CellAlignment intializer
+    # @return [CellAlignment]
+    # @see CellAlignment
+    def parse_alignment_options(options={})
+      return unless options[:alignment]
+      CellAlignment.new options[:alignment]
+    end
 
-      xf = Xf.new(:fillId => fill, :fontId=>fontId, :applyFill=>1, :applyFont=>1, :numFmtId=>numFmtId, :borderId=>borderId, :applyProtection=>applyProtection)
+    # parses add_style options for fonts. If the options hash contains :type => :dxf we return a new Font object.
+    # if not, we return the index of the newly created font object in the styles.fonts collection.
+    # @note noop if none of the options described here are set on the options parameter.
+    # @option options [Symbol] type The type of style object we are working with (dxf or xf)
+    # @option options [String] fg_color The text color
+    # @option options [Integer] sz The text size
+    # @option options [Boolean] b Indicates if the text should be bold
+    # @option options [Boolean] i Indicates if the text should be italicised
+    # @option options [Boolean] u Indicates if the text should be underlined
+    # @option options [Boolean] strike Indicates if the text should be rendered with a strikethrough
+    # @option options [Boolean] outline Indicates if the text should be rendered with a shadow
+    # @option options [Integer] charset The character set to use.
+    # @option options [Integer] family The font family to use.
+    # @option options [String] font_name The name of the font to use
+    # @return [Font|Integer]
+    def parse_font_options(options={})
+      return if (options.keys & [:fg_color, :sz, :b, :i, :u, :strike, :outline, :shadow, :charset, :family, :font_name]).empty?
+      font = Font.new(options)
+      font.color = Color.new(:rgb => options[:fg_color]) if options[:fg_color]
+      font.name = options[:font_name] if options[:font_name]
+      options[:type] == :dxf ? font : fonts << font
+    end
 
-      xf.applyNumberFormat = true if xf.numFmtId > 0
-      xf.applyBorder = true if borderId > 0
+    # parses add_style options for fills. If the options hash contains :type => :dxf we return a Fill object. If not, we return the index of the fill after being added to the fills collection.
+    # @note noop if :bg_color is not specified in options
+    # @option options [String] bg_color The rgb color to apply to the fill
+    # @return [Fill|Integer]
+    def parse_fill_options(options={})
+      return unless options[:bg_color]
+      color = Color.new(:rgb=>options[:bg_color])
+      pattern = PatternFill.new(:patternType =>:solid, :fgColor=>color)
+      fill = Fill.new(pattern)
+      options[:type] == :dxf ? fill : fills << fill
+    end
 
-      if options[:alignment]
-        xf.alignment = CellAlignment.new(options[:alignment])
-        xf.applyAlignment = true
+    # parses Style#add_style options for borders.
+    # @note noop if :border is not specified in options
+    # @option options [Hash|Integer] A border style definition hash or the index of an existing border. Border style definition hashes must include :style and color: key-value entries and may include an :edges entry that references an array of symbols identifying which border edges you wish to apply the style or any other valid Border initializer options. If the :edges entity is not provided the style is applied to all edges of cells that reference this style.
+    # @example
+    #   #apply a thick red border to the top and bottom
+    #   { :border => { :style => :thick, :color => "FFFF0000", :edges => [:top, :bottom] }
+    # @return [Border|Integer]
+    def parse_border_options(options={})
+      return unless options[:border]
+      b_opts = options[:border]
+      if b_opts.is_a?(Hash)
+        raise ArgumentError, (ERR_INVALID_BORDER_OPTIONS % b_opts) unless b_opts.values_at(:style, :color).size == 2
+        border = Border.new b_opts
+        (b_opts[:edges] || [:left, :right, :top, :bottom]).each do |edge|
+          b_options = { :name => edge, :style => b_opts[:style], :color => Color.new(:rgb => b_opts[:color]) }
+          border.prs << BorderPr.new(b_options)
+        end
+        options[:type] == :dxf ? border : borders << border
+      elsif b_opts.is_a? Integer
+        raise ArgumentError, (ERR_INVALID_BORDER_ID % b_opts) unless b_opts < borders.size
+        if options[:type] == :dxf
+          borders[b_opts].clone
+        else
+          border = b_opts
+        end
       end
+    end
 
-      if applyProtection
-        xf.protection = CellProtection.new(options)
+    # Parses Style#add_style options for number formatting.
+    # noop if neither :format_code or :num_format options are set.
+    # @option options [Hash] A hash describing the :format_code and/or :num_fmt integer for the style.
+    # @return [NumFmt|Integer]
+    def parse_num_fmt_options(options={})
+      return if (options.keys & [:format_code, :num_fmt]).empty?
+
+      #When the user provides format_code - we always need to create a new numFmt object
+      #When the type is :dxf we always need to create a new numFmt object
+      if options[:format_code] || options[:type] == :dxf
+        #If this is a standard xf we pull from numFmts the highest current and increment for num_fmt
+        options[:num_fmt] ||= (@numFmts.map{ |num_fmt| num_fmt.numFmtId }.max + 1) if options[:type] != :dxf
+        numFmt = NumFmt.new(:numFmtId => options[:num_fmt] || 0, :formatCode=> options[:format_code].to_s)
+        options[:type] == :dxf ? numFmt : (numFmts << numFmt; numFmt.numFmtId)
+      else
+        options[:num_fmt]
       end
-
-      cellXfs << xf
     end
 
     # Serializes the object
@@ -306,7 +397,7 @@ module Axlsx
       @cellXfs << Xf.new(:borderId=>0, :xfId=>0, :numFmtId=>14, :fontId=>0, :fillId=>0, :applyNumberFormat=>1)
       @cellXfs.lock
 
-      @dxfs = SimpleTypedList.new(Xf, "dxfs"); @dxfs.lock
+      @dxfs = SimpleTypedList.new(Dxf, "dxfs"); @dxfs.lock
       @tableStyles = TableStyles.new(:defaultTableStyle => "TableStyleMedium9", :defaultPivotStyle => "PivotStyleLight16"); @tableStyles.lock
     end
   end

@@ -79,6 +79,18 @@ module Axlsx
   # image rels namespace
   HYPERLINK_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 
+  # comment rels namespace
+  COMMENT_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+
+  # comment relation for nil target
+  COMMENT_R_NULL = "http://purl.oclc.org/ooxml/officeDocument/relationships/comments"
+
+  #vml drawing relation namespace
+  VML_DRAWING_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing'
+
+  # VML Drawing content type
+  VML_DRAWING_CT = "application/vnd.openxmlformats-officedocument.vmlDrawing"
+
   # table content type
   TABLE_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"
 
@@ -108,6 +120,9 @@ module Axlsx
 
   # chart content type
   CHART_CT = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+
+  # comments content type
+  COMMENT_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"
 
   # jpeg content type
   JPEG_CT = "image/jpeg"
@@ -172,6 +187,9 @@ module Axlsx
   # drawing rels part
   DRAWING_RELS_PN = "drawings/_rels/drawing%d.xml.rels"
 
+  # vml drawing part
+  VML_DRAWING_PN = "drawings/vmlDrawing%d.vml"
+
   # drawing part
   TABLE_PN = "tables/table%d.xml"
 
@@ -180,6 +198,9 @@ module Axlsx
 
   # chart part
   IMAGE_PN = "media/image%d.%s"
+
+  # comment part
+  COMMENT_PN = "comments%d.xml"
 
   # location of schema files for validation
   SCHEMA_BASE = File.dirname(__FILE__)+'/../../schema/'
@@ -228,8 +249,23 @@ module Axlsx
 
   # error message for sheets that use a name which is longer than 31 bytes
   ERR_SHEET_NAME_TOO_LONG = "Your worksheet name '%s' is too long. Worksheet names must be 31 characters (bytes) or less"
+  
+  # error message for sheets that use a name which includes a colon
+  
+  ERR_SHEET_NAME_COLON_FORBIDDEN = "Your worksheet name '%s' contains a colon, which is not allowed by MS Excel and will cause repair warnings. Please change the name of your sheet."
 
   # error message for duplicate sheet names
   ERR_DUPLICATE_SHEET_NAME = "There is already a worksheet in this workbook named '%s'. Please use a unique name"
 
+  # error message when user does not provide color and or style options for border in Style#add_sytle
+  ERR_INVALID_BORDER_OPTIONS = "border hash must include both style and color. e.g. :border => { :color => 'FF000000', :style => :thin }. You provided: %s"
+
+  # error message for invalid border id reference
+  ERR_INVALID_BORDER_ID = "The border id you specified (%s) does not exist. Please add a border with Style#add_style before referencing its index."
+
+  # error message for invalid angles
+  ERR_ANGLE = "Angles must be a value between -90 and 90. You provided: %s"
+
+  # error message for non 'integerish' value
+  ERR_INTEGERISH = "You value must be, or be castable via to_i, an Integer. You provided %s"
 end

@@ -60,7 +60,8 @@ module Axlsx
 
     # @see Col#outline
     def outlineLevel=(v)
-      Axlsx.validate_boolean(v)
+      Axlsx.validate_unsigned_numeric(v)
+      raise ArgumentError, 'outlineLevel must be between 0 and 7' unless 0 <= v && v <= 7
       @outlineLevel = v
     end
 
@@ -101,6 +102,21 @@ module Axlsx
         self.send("#{o[0]}=", o[1]) if self.respond_to? "#{o[0]}="
       end
     end
+    
+    # updates the width for this col based on the cells autowidth and 
+    # an optionally specified fixed width
+    # @param [Cell] cell The cell to use in updating this col's width
+    # @param [Integer] fixed_width If this is specified the width is set
+    # to this value and the cell's attributes are ignored.
+    # @param [Boolean] use_autowidth If this is false, the cell's
+    # autowidth value will be ignored.
+    def update_width(cell, fixed_width=nil, use_autowidth=true)
+       if fixed_width.is_a? Numeric
+         self.width = fixed_width
+       elsif use_autowidth
+        self.width = [width || 0, cell.autowidth || 0].max
+       end 
+    end 
 
     # Serialize this columns data to an xml string
     # @param [String] str

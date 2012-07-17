@@ -18,7 +18,7 @@ module Axlsx
 
     # Creats a new typed list
     # @param [Array, Class] type An array of Class objects or a single Class object
-    # @param [String] serialize The tag name to use in serialization
+    # @param [String] serialize_as The tag name to use in serialization
     # @raise [ArgumentError] if all members of type are not Class objects
     def initialize type, serialize_as=nil
       if type.is_a? Array
@@ -50,6 +50,18 @@ module Axlsx
       @locked_at = nil
       self
     end
+    
+    # join operator
+    # @param [Array] v the array to join
+    # @raise [ArgumentError] if any of the values being joined are not
+    # one of the allowed types
+    # @return [SimpleTypedList]
+    def +(v)
+      v.each do |item| 
+        DataTypeValidator.validate "SimpleTypedList.+", @allowed_types, item
+        @list << item 
+      end 
+    end
 
     # Concat operator
     # @param [Any] v the data to be added
@@ -60,12 +72,7 @@ module Axlsx
       @list << v
       @list.size - 1
     end
-
-    # alternate of << method
-    # @see <<
-    def push(v)
-      self.<< v
-    end
+    alias :push :<<
 
     # delete the item from the list
     # @param [Any] v The item to be deleted.
@@ -149,23 +156,10 @@ module Axlsx
 
     def to_xml_string(str = '')
       classname = @allowed_types[0].name.split('::').last
-      el_name = serialize_as || (classname[0,1].downcase + classname[1..-1])
+      el_name = serialize_as.to_s || (classname[0,1].downcase + classname[1..-1])
       str << '<' << el_name << ' count="' << @list.size.to_s << '">'
       @list.each { |item| item.to_xml_string(str) }
       str << '</' << el_name << '>'
-    end
-
-    # Serializes the list
-    # If the serialize_as property is set, it is used as the parent node name.
-    # If the serialize_as property is nil, the first item in the list of allowed_types will be used, having the first letter of the class changed to lower case.
-    # @param [Nokogiri::XML::Builder] xml The document builder instance this objects xml will be added to.
-    # @return [String]
-    def to_xml(xml)
-      classname = @allowed_types[0].name.split('::').last
-      el_name = serialize_as || (classname[0,1].downcase + classname[1..-1])
-      xml.send(el_name, :count=>@list.size) {
-        @list.each { |item| item.to_xml(xml) }
-      }
     end
 
   end

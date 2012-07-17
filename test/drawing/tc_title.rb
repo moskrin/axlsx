@@ -1,3 +1,5 @@
+$LOAD_PATH.unshift "#{File.dirname(__FILE__)}/../"
+
 require 'tc_helper.rb'
 
 class TestTitle < Test::Unit::TestCase
@@ -28,6 +30,20 @@ class TestTitle < Test::Unit::TestCase
     assert_raise(ArgumentError, "cell must be a Cell") { @title.cell = "123" }
     @title.cell = @row.cells.first
     assert(@title.text == "one")
+  end
+
+  def test_to_xml_string_text
+    @chart.title.text = 'foo'
+    doc = Nokogiri::XML(@chart.to_xml_string)
+    assert_equal(1, doc.xpath('//c:rich').size)
+    assert_equal(1, doc.xpath("//a:t[text()='foo']").size)
+  end
+
+  def test_to_xml_string_cell
+    @chart.title.cell = @row.cells.first
+    doc = Nokogiri::XML(@chart.to_xml_string)
+    assert_equal(1, doc.xpath('//c:strCache').size)
+    assert_equal(1, doc.xpath('//c:v[text()="one"]').size)
   end
 
 end

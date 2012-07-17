@@ -1,16 +1,10 @@
 # encoding: UTF-8
+require 'htmlentities'
 require 'axlsx/version.rb'
 
 require 'axlsx/util/simple_typed_list.rb'
 require 'axlsx/util/constants.rb'
 require 'axlsx/util/validators.rb'
-require 'axlsx/util/storage.rb'
-
-#not even close to being ready but it does not break anything so it stays for now.
-# needs a full re-write to use agile-encryption properly
-require 'axlsx/util/cbf.rb'
-require 'axlsx/util/ms_off_crypto.rb'
-
 
 # to be included with parsable intitites.
 #require 'axlsx/util/parser.rb'
@@ -45,23 +39,32 @@ end
 
 # xlsx generation with charts, images, automated column width, customizable styles and full schema validation. Axlsx excels at helping you generate beautiful Office Open XML Spreadsheet documents without having to understand the entire ECMA specification. Check out the README for some examples of how easy it is. Best of all, you can validate your xlsx file before serialization so you know for sure that anything generated is going to load on your client's machine.
 module Axlsx
+
   # determines the cell range for the items provided
-  def self.cell_range(items)
-    return "" unless items.first.is_a? Cell
-    ref = "'#{items.first.row.worksheet.name}'!" +
-      "#{items.first.r_abs}"
-    ref += ":#{items.last.r_abs}" if items.size > 1
-    ref
+  def self.cell_range(cells, absolute=true)
+    return "" unless cells.first.is_a? Cell
+    sort_cells(cells)
+    reference = "#{cells.first.reference(absolute)}:#{cells.last.reference(absolute)}"
+    absolute ? "#{cells.first.row.worksheet.name}!#{reference}" : reference
   end
 
+  def self.sort_cells(cells)
+    cells.sort { |x, y| [x.index, x.row.index] <=> [y.index, y.row.index] }
+  end
+
+  #global reference html entity encoding
+  # @return [HtmlEntities]
+  def self.coder
+    @@coder ||= ::HTMLEntities.new
+  end
+  
+  # returns the x, y position of a cell
   def self.name_to_indices(name)
     raise ArgumentError, 'invalid cell name' unless name.size > 1
     v = name[/[A-Z]+/].reverse.chars.reduce({:base=>1, :i=>0}) do  |val, c|
       val[:i] += ((c.bytes.first - 64) * val[:base]); val[:base] *= 26; val
     end
-
     [v[:i]-1, ((name[/[1-9][0-9]*/]).to_i)-1]
-
   end
 
   # converts the column index into alphabetical values.
@@ -71,7 +74,7 @@ module Axlsx
     chars = []
     while index >= 26 do
       chars << ((index % 26) + 65).chr
-      index = index / 26 - 1
+      index = (index / 26).to_i - 1
     end
     chars << (index + 65).chr
     chars.reverse.join
@@ -82,6 +85,14 @@ module Axlsx
   #   ws.rows.first.cells.first.r #=> "A1"
   def self.cell_r(c_index, r_index)
     Axlsx::col_ref(c_index).to_s << (r_index+1).to_s
+  end
+
+  # performs the increadible feat of changing snake_case to CamelCase
+  # @param [String] s The snake case string to camelize
+  # @return [String]
+  def self.camel(s="", all_caps = true)
+    s = s.capitalize if all_caps
+    s.gsub(/_(.)/){ $1.upcase }
   end
 
 end

@@ -1,5 +1,44 @@
 CHANGELOG
 ---------
+- ** April.18.12**: 1.1.1 release
+   - bugfix for autowidth calculations across multiple rows
+   - bugfix for dimension calculations with nil cells.
+   - REMOVED RMAGICK dependency WOOT!
+   - Update readme to show screenshot of gem output.
+   - Cleanup benchmark and add benchmark rake task
+
+- ** April.3.12**: 1.1.0 release
+   - bugfix patch name_to_indecies to properly handle extended ranges.
+   - bugfix properly serialize chart title.
+   - lower rake minimum requirement for 1.8.7 apps that don't want to move on to 0.9 NOTE this will be reverted for 2.0.0 with workbook parsing!
+   - Added Fit to Page printing
+   - added support for turning off gridlines in charts.
+   - added support for turning off gridlines in worksheet.
+   - bugfix some apps like libraoffice require apply[x] attributes to be true. applyAlignment is now properly set.
+   - added option use_autowidth. When this is false RMagick will not be loaded or used in the stack. However it is still a requirement in the gem.
+   - added border style specification to styles#add_style. See the example in the readme.
+   - Support for tables added in - Note: Pre 2011 versions of Mac office do not support this feature and will warn.
+   - Support for splatter charts added
+   - Major (like 7x faster!) performance updates.
+   - Gem now supports for JRuby 1.6.7, as well as experimental support for Rubinius
+
+- ** March.5.12**: 1.0.18 release
+   https://github.com/randym/axlsx/compare/1.0.17...1.0.18
+   - bugfix custom borders are not properly applied when using styles.add_style
+   - interop worksheet names must be 31 characters or less or some versions of office complain about repairs
+   - added type support for :boolean and :date types cell values
+   - added support for fixed column widths
+   - added support for page_margins
+   - added << alias for add_row
+   - removed presetting of date1904 based on authoring platform. Now defaults to use 1900 epoch (date1904 = false)
+
+- ** February.14.12**: 1.0.17 release
+   https://github.com/randym/axlsx/compare/1.0.16...1.0.17
+   - Added in support for serializing to StringIO
+   - Added in support for using shared strings table. This makes most of the features in axlsx interoperable with iWorks Numbers
+   - Added in support for fixed column_widths
+   - Removed unneeded dependencies on active-support and i18n
+
 - ** February.2.12**: 1.0.16 release
    https://github.com/randym/axlsx/compare/1.0.15...1.0.16
    - Bug fix for schema file locations when validating in rails

@@ -1,13 +1,63 @@
+# encoding: UTF-8
 require 'tc_helper.rb'
 
 class TestPackage < Test::Unit::TestCase
   def setup
     @package = Axlsx::Package.new
     ws = @package.workbook.add_worksheet
-    chart = ws.add_chart Axlsx::Pie3DChart
-    chart.add_series :data=>[1,2,3], :labels=>["a", "b", "c"]
-    @fname = 'axlsx_test_serialization.xlsx'
+    ws.add_row ['Can', 'we', 'build it?']
+    ws.add_row ['Yes!', 'We', 'can!']
+    ws.protect_range('A1:C1')
+    ws.protect_range(ws.rows.last.cells)
+    ws.add_comment :author => 'alice', :text => 'Hi Bob', :ref => 'A12'
+    ws.add_comment :author => 'bob', :text => 'Hi Alice', :ref => 'F19'
+    ws.sheet_view do |vs|
+      vs.pane do |p|
+        p.active_pane = :top_right
+        p.state = :split
+        p.x_split = 11080
+        p.y_split = 5000
+        p.top_left_cell = 'C44'
+      end
 
+      vs.add_selection(:top_left, { :active_cell => 'A2', :sqref => 'A2' })
+      vs.add_selection(:top_right, { :active_cell => 'I10', :sqref => 'I10' })
+      vs.add_selection(:bottom_left, { :active_cell => 'E55', :sqref => 'E55' })
+      vs.add_selection(:bottom_right, { :active_cell => 'I57', :sqref => 'I57' })
+    end
+
+    ws.add_chart(Axlsx::Pie3DChart, :title => "これは？", :start_at => [0,3]) do |chart|
+      chart.add_series :data=>[1,2,3], :labels=>["a", "b", "c"]
+    end
+
+    ws.add_chart(Axlsx::Line3DChart, :title => "axis labels") do |chart|
+      chart.valAxis.title = 'bob'
+    end 
+
+    @fname = 'axlsx_test_serialization.xlsx'
+    img = File.expand_path('../../examples/image1.jpeg', __FILE__)
+    ws.add_image(:image_src => img, :noSelect => true, :noMove => true, :hyperlink=>"http://axlsx.blogspot.com") do |image|
+      image.width=720
+      image.height=666
+      image.hyperlink.tooltip = "Labeled Link"
+      image.start_at 5, 5
+    end
+    ws.add_image :image_src => File.expand_path('../../examples/image1.gif', __FILE__) do |image|
+      image.start_at 0, 20
+      image.width=360
+      image.height=333 
+    end
+    ws.add_image :image_src => File.expand_path('../../examples/image1.png', __FILE__) do |image|
+      image.start_at 9, 20
+      image.width = 180
+      image.height = 167
+    end
+    ws.add_table 'A1:C1'
+  end
+
+  def test_use_autowidth
+    @package.use_autowidth = false
+    assert(@package.workbook.use_autowidth == false)
   end
 
   def test_core_accessor
@@ -35,30 +85,26 @@ class TestPackage < Test::Unit::TestCase
   end
 
   def test_serialization
-    fname = 'axlsx_test_serialization.xlsx'
     assert_nothing_raised do
       begin
-         z= @package.serialize(@fname)
-         zf = Zip::ZipFile.open(@fname)
-         @package.send(:parts).each{ |part| zf.get_entry(part[:entry]) }
-         File.delete(@fname)
+        @package.serialize(@fname)
+        zf = Zip::ZipFile.open(@fname)
+        @package.send(:parts).each{ |part| zf.get_entry(part[:entry]) }
+        File.delete(@fname)
       rescue Errno::EACCES
-         puts "WARNING:: test_serialization requires write access."
+        puts "WARNING:: test_serialization requires write access."
       end
-     end
-   end
+    end
+  end
 
   def test_validation
     assert_equal(@package.validate.size, 0, @package.validate)
-    #how to test for failure? the internal validations on the models are so strict I cant break anthing.....
+    Axlsx::Workbook.send(:class_variable_set, :@@date1904, 9900)
+    assert(@package.validate.size > 0)
   end
 
   def test_parts
     p = @package.send(:parts)
-    p.each do |part|
-      #all parts must have :doc, :entry, :schema
-      assert(part.keys.size == 3 && part.keys.reject{ |k| [:doc, :entry, :schema].include? k}.empty?)
-    end
     #all parts have an entry
     assert_equal(p.select{ |part| part[:entry] =~ /_rels\/\.rels/ }.size, 1, "rels missing")
     assert_equal(p.select{ |part| part[:entry] =~ /docProps\/core\.xml/ }.size, 1, "core missing")
@@ -72,9 +118,11 @@ class TestPackage < Test::Unit::TestCase
     assert_equal(p.select{ |part| part[:entry] =~ /xl\/charts\/chart\d\.xml/ }.size, @package.workbook.charts.size, "one or more charts missing")
     assert_equal(p.select{ |part| part[:entry] =~ /xl\/worksheets\/sheet\d\.xml/ }.size, @package.workbook.worksheets.size, "one or more sheet missing")
     assert_equal(p.select{ |part| part[:entry] =~ /xl\/worksheets\/_rels\/sheet\d\.xml\.rels/ }.size, @package.workbook.worksheets.size, "one or more sheet rels missing")
+    assert_equal(p.select{ |part| part[:entry] =~ /xl\/comments\d\.xml/ }.size, @package.workbook.worksheets.size, "one or more sheet rels missing")
+
 
     #no mystery parts
-    assert_equal(p.size, 12)
+    assert_equal(p.size, 19)
 
   end
 
@@ -102,11 +150,24 @@ class TestPackage < Test::Unit::TestCase
   def test_content_type_added_with_shared_strings
     @package.use_shared_strings = true
     ct = @package.send(:content_types)
-    assert(ct.select { |ct| ct.ContentType == Axlsx::SHARED_STRINGS_CT }.size == 1)
+    assert(ct.select { |type| type.ContentType == Axlsx::SHARED_STRINGS_CT }.size == 1)
   end
 
   def test_name_to_indices
     assert(Axlsx::name_to_indices('A1') == [0,0])
     assert(Axlsx::name_to_indices('A100') == [0,99], 'needs to axcept rows that contain 0')
+  end
+
+  def test_to_stream
+    stream = @package.to_stream
+    assert(stream.is_a?(StringIO))
+    # this is just a roundabout guess for a package as it is build now
+    # in testing.
+    assert(stream.size > 80000)
+  end
+
+  def test_encrypt
+    # this is no where near close to ready yet
+    assert(@package.encrypt('your_mom.xlsxl', 'has a password') == false)
   end
 end

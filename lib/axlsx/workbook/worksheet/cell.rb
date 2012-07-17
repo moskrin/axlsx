@@ -3,22 +3,6 @@ require 'cgi'
 module Axlsx
   # A cell in a worksheet.
   # Cell stores inforamation requried to serialize a single worksheet cell to xml. You must provde the Row that the cell belongs to and the cells value. The data type will automatically be determed if you do not specify the :type option. The default style will be applied if you do not supply the :style option. Changing the cell's type will recast the value to the type specified. Altering the cell's value via the property accessor will also automatically cast the provided value to the cell's type.
-  # @example Manually creating and manipulating Cell objects
-  #   ws = Workbook.new.add_worksheet
-  #   # This is the simple, and recommended way to create cells. Data types will automatically be determined for you.
-  #   ws.add_row :values => [1,"fish",Time.now]
-  #
-  #   # but you can also do this
-  #   r = ws.add_row
-  #   r.add_cell 1
-  #
-  #   # or even this
-  #   r = ws.add_row
-  #   c = Cell.new row, 1, :value=>integer
-  #
-  #   # cells can also be accessed via Row#cells. The example here changes the cells type, which will automatically updated the value from 1 to 1.0
-  #   r.cells.last.type = :float
-  #
   # @note The recommended way to generate cells is via Worksheet#add_row
   #
   # @see Worksheet#add_row
@@ -83,7 +67,7 @@ module Axlsx
     # Indicates if the cell is good for shared string table
     def plain_string?
       @type == :string &&         # String typed
-        !@is_text_run &&          # No inline styles
+        !is_text_run? &&          # No inline styles
         !@value.nil? &&           # Not nil
         !@value.empty? &&         # Not empty
         !@value.start_with?('=')  # Not a formula
@@ -158,7 +142,7 @@ module Axlsx
     # The inline color property for the cell
     # @return [Color]
     attr_reader :color
-    # @param [String] The 8 character representation for an rgb color #FFFFFFFF"
+    # @param [String] v The 8 character representation for an rgb color #FFFFFFFF"
     def color=(v)
       @color = v.is_a?(Color) ? v : Color.new(:rgb=>v)
       @is_text_run = true
@@ -211,7 +195,7 @@ module Axlsx
     # @option options [Symbol] scheme must be one of :none, major, :minor
     def initialize(row, value="", options={})
       self.row=row
-      @font_name = @charset = @family = @b = @i = @strike = @outline = @shadow = nil
+      @value = @font_name = @charset = @family = @b = @i = @strike = @outline = @shadow = nil
       @condense = @u = @vertAlign = @sz = @color = @scheme = @extend = @ssti = nil
       @styles = row.worksheet.workbook.styles
       @row.cells << self
@@ -235,9 +219,8 @@ module Axlsx
     # @return [String] The alpha(column)numeric(row) reference for this sell.
     # @example Relative Cell Reference
     #   ws.rows.first.cells.first.r #=> "A1"
-    # @note this will be discontinued in 1.1.0 -  prefer Axlsx.cell_r
     def r
-      "#{Axlsx::col_ref(index)}#{@row.index+1}"
+      Axlsx::cell_r index, @row.index
     end
 
     # @return [String] The absolute alpha(column)numeric(row) reference for this sell.
@@ -278,9 +261,8 @@ module Axlsx
     # @return [String]
     def run_xml_string(str = '')
       if is_text_run?
-        data = self.instance_values.reject{|key, value| value == nil }
+        data = instance_values.reject{|key, value| value == nil || key == 'value' || key == 'type' }
         keys = data.keys & INLINE_STYLES
-        keys.delete ['value', 'type']
         str << "<r><rPr>"
         keys.each do |key|
           case key
@@ -289,7 +271,7 @@ module Axlsx
           when 'color'
             str << data[key].to_xml_string
           else
-            "<" << key.to_s << " val='" << data[key].to_s << "'/>"
+            str << "<" << key.to_s << " val='" << data[key].to_s << "'/>"
           end
         end
         str << "</rPr>" << "<t>" << value.to_s << "</t></r>"
@@ -305,13 +287,15 @@ module Axlsx
     # @param [String] str The string index the cell content will be appended to. Defaults to empty string.
     # @return [String] xml text for the cell
     def to_xml_string(r_index, c_index, str = '')
-      return str if @value.nil?
       str << '<c r="' << Axlsx::cell_r(c_index, r_index) << '" s="' << @style.to_s << '" '
+      return str << '/>' if @value.nil?
+
       case @type
+
       when :string
         #parse formula
         if @value.start_with?('=')
-          str  << 't="str"><f>' << @value.to_s.gsub('=', '') << '</f>'
+          str  << 't="str"><f>' << @value.to_s.sub('=', '') << '</f>'
         else
           #parse shared
           if @ssti
@@ -333,7 +317,29 @@ module Axlsx
       str << '</c>'
     end
 
+    def is_formula?
+      @type == :string && @value.to_s.start_with?('=')
+    end
+
+    # This is still not perfect...
+    #  - scaling is not linear as font sizes increst
+    #  - different fonts have different mdw and char widths
+    def autowidth
+      return if is_formula? || value == nil
+      mdw = 1.78 #This is the widest width of 0..9 in arial@10px)
+      font_scale = (font_size/10.0).to_f
+      ((value.to_s.count(Worksheet.thin_chars) * mdw + 5) / mdw * 256) / 256.0 * font_scale
+    end
+   
+    def reference(absolute=true)
+      absolute ? r_abs : r
+    end 
+    
     private
+
+    def font_size
+        sz || @styles.fonts[@styles.cellXfs[style].fontId].sz
+    end
 
     # Utility method for setting inline style attributes
     def set_run_style( validator, attr, value)

@@ -80,9 +80,8 @@ module Axlsx
 
     # Serialize your workbook to disk as an xlsx document.
     #
-    # @param [File] output The file you want to serialize your package to
+    # @param [String] output The name of the file you want to serialize your package to
     # @param [Boolean] confirm_valid Validate the package prior to serialization.
-    # @option options stream indicates if we should be writing to a stream or a file. True for stream, nil for file
     # @return [Boolean] False if confirm_valid and validation errors exist. True if the package was serialized
     # @note A tremendous amount of effort has gone into ensuring that you cannot create invalid xlsx documents.
     #   confirm_valid should be used in the rare case that you cannot open the serialized file.
@@ -90,10 +89,15 @@ module Axlsx
     # @example
     #   # This is how easy it is to create a valid xlsx file. Of course you might want to add a sheet or two, and maybe some data, styles and charts.
     #   # Take a look at the README for an example of how to do it!
-    #   f = File.open('test.xlsx', 'w')
-    #   Package.new.serialize(f)
     #
-    #   # You will find a file called test.xlsx
+    #   #serialize to a file
+    #   p = Axlsx::Package.new
+    #   # ......add cool stuff to your workbook......
+    #   p.serialize("example.xlsx")
+    #
+    #   # Serialize to a stream
+    #   s = p.to_stream()
+    #   File.open('example_streamed.xlsx', 'w') { |f| f.write(s.read) }
     def serialize(output, confirm_valid=false)
       return false unless !confirm_valid || self.validate.empty?
       Zip::ZipOutputStream.open(output) do |zip|
@@ -152,18 +156,18 @@ module Axlsx
     # @return [Zip::ZipOutputStream]
     def write_parts(zip)
       p = parts
-        p.each do |part|
-          unless part[:doc].nil?
-            zip.put_next_entry(part[:entry]);
-            entry = ['1.9.2', '1.9.3'].include?(RUBY_VERSION) ? part[:doc].force_encoding('BINARY') : part[:doc]
-            zip.puts(entry)
-          end
-          unless part[:path].nil?
-            zip.put_next_entry(part[:entry]);
-            # binread for 1.9.3
-            zip.write IO.respond_to?(:binread) ? IO.binread(part[:path]) : IO.read(part[:path])
-          end
+      p.each do |part|
+        unless part[:doc].nil?
+          zip.put_next_entry(part[:entry])
+          entry = ['1.9.2', '1.9.3'].include?(RUBY_VERSION) ? part[:doc].force_encoding('BINARY') : part[:doc]
+          zip.puts(entry)
         end
+        unless part[:path].nil?
+          zip.put_next_entry(part[:entry]);
+          # binread for 1.9.3
+          zip.write IO.respond_to?(:binread) ? IO.binread(part[:path]) : IO.read(part[:path])
+        end
+      end
       zip
     end
 
@@ -180,13 +184,22 @@ module Axlsx
        {:entry => CONTENT_TYPES_PN, :doc => content_types.to_xml_string, :schema => CONTENT_TYPES_XSD},
        {:entry => WORKBOOK_PN, :doc => workbook.to_xml_string, :schema => SML_XSD}
       ]
+
       workbook.drawings.each do |drawing|
         @parts << {:entry => "xl/#{drawing.rels_pn}", :doc => drawing.relationships.to_xml_string, :schema => RELS_XSD}
         @parts << {:entry => "xl/#{drawing.pn}", :doc => drawing.to_xml_string, :schema => DRAWING_XSD}
       end
 
+
       workbook.tables.each do |table|
         @parts << {:entry => "xl/#{table.pn}", :doc => table.to_xml_string, :schema => SML_XSD}
+      end
+
+      workbook.comments.each do|comment|
+        if comment.size > 0
+          @parts << { :entry => "xl/#{comment.pn}", :doc => comment.to_xml_string, :schema => SML_XSD }
+          @parts << { :entry => "xl/#{comment.vml_drawing.pn}", :doc => comment.vml_drawing.to_xml_string, :schema => nil }
+        end
       end
 
       workbook.charts.each do |chart|
@@ -229,18 +242,33 @@ module Axlsx
     # @private
     def content_types
       c_types = base_content_types
+
       workbook.drawings.each do |drawing|
         c_types << Axlsx::Override.new(:PartName => "/xl/#{drawing.pn}",
                                        :ContentType => DRAWING_CT)
       end
+
       workbook.charts.each do |chart|
         c_types << Axlsx::Override.new(:PartName => "/xl/#{chart.pn}",
                                        :ContentType => CHART_CT)
       end
+
       workbook.tables.each do |table|
         c_types << Axlsx::Override.new(:PartName => "/xl/#{table.pn}",
                                        :ContentType => TABLE_CT)
       end
+
+      workbook.comments.each do |comment|
+        if comment.size > 0
+        c_types << Axlsx::Override.new(:PartName => "/xl/#{comment.pn}",
+                                       :ContentType => COMMENT_CT)
+        end
+      end
+
+      if workbook.comments.size > 0
+        c_types << Axlsx::Default.new(:Extension => "vml", :ContentType => VML_DRAWING_CT)
+      end
+
       workbook.worksheets.each do |sheet|
         c_types << Axlsx::Override.new(:PartName => "/xl/#{sheet.pn}",
                                          :ContentType => WORKSHEET_CT)

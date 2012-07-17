@@ -27,6 +27,7 @@ module Axlsx
       end
     end
 
+
     # The index of this series in the chart's series.
     # @return [Integer]
     def index
@@ -66,7 +67,6 @@ module Axlsx
       yield str if block_given?
       str << '</c:ser>'
     end
-
   end
 
 end

@@ -25,21 +25,31 @@ module Axlsx
     # @return [Drawing]
     attr_reader :drawing
 
-
-    # Creates a new TwoCellAnchor object and sets up a reference to the from and to markers in the
-    # graphic_frame's chart. That means that you can do stuff like
-    # c = worksheet.add_chart Axlsx::Chart
+    # Creates a new TwoCellAnchor object
     # c.start_at 5, 9
-    # @note the chart_type parameter will be replaced with object in v. 2.0.0
     # @param [Drawing] drawing
-    # @param [Class] chart_type This is passed to the graphic frame for instantiation. must be Chart or a subclass of Chart
-    # @param object The object this anchor holds.
-    # @option options [Array] start_at the col, row to start at
-    # @option options [Array] end_at the col, row to end at
+    # @option options [Array] :start_at the col, row to start at THIS IS DOCUMENTED BUT NOT IMPLEMENTED HERE!
+    # @option options [Array] :end_at the col, row to end at
     def initialize(drawing, options={})
       @drawing = drawing
       drawing.anchors << self
       @from, @to =  Marker.new, Marker.new(:col => 5, :row=>10)
+    end
+
+    # sets the col, row attributes for the from marker.
+    # @note The recommended way to set the start position for graphical
+    # objects is directly thru the object. 
+    # @see Chart#start_at
+    def start_at(x, y)
+      set_marker_coords(x, y, from)
+    end
+
+    # sets the col, row attributes for the to marker
+    # @note the recommended way to set the to position for graphical
+    # objects is directly thru the object
+    # @see Char#end_at
+    def end_at(x, y)
+      set_marker_coords(x, y, to) 
     end
 
     # Creates a graphic frame and chart object associated with this anchor
@@ -47,6 +57,11 @@ module Axlsx
     def add_chart(chart_type, options)
       @object = GraphicFrame.new(self, chart_type, options)
       @object.chart
+    end
+
+    # Creates an image associated with this anchor.
+    def add_pic(options={})
+      @object = Pic.new(self, options)
     end
 
     # The index of this anchor in the drawing
@@ -70,6 +85,28 @@ module Axlsx
       str << '<xdr:clientData/>'
       str << '</xdr:twoCellAnchor>'
     end
+    private 
+
+    # parses coordinates and sets up a marker's row/col propery
+    def set_marker_coords(x, y, marker)
+      marker.col, marker.row = *parse_coord_args(x, y)
+    end
+
+    # handles multiple inputs for setting the position of a marker
+    # @see Chart#start_at
+    def parse_coord_args(x, y=0)
+      if x.is_a?(String)
+        x, y = *Axlsx::name_to_indices(x)
+      end
+      if x.is_a?(Cell)
+        x, y = *x.pos
+      end
+      if x.is_a?(Array)
+        x, y = *x
+      end
+      [x, y]
+    end
+
 
   end
 end
